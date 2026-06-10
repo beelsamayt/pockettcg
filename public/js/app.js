@@ -87,16 +87,31 @@ function showPage(name, extra) {
   _id('page-'+name)?.classList.add('active');
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.toggle('active',t.dataset.page===name));
   window.scrollTo(0,0);
+  // Update URL
+  if(name==='home')       window.history.pushState({page:'home'}, '', '/');
+  if(name==='create')     window.history.pushState({page:'create'}, '', '/organize');
+  if(name==='my')         window.history.pushState({page:'my'}, '', '/my-events');
+  if(name==='tournament'&&extra) window.history.pushState({page:'tournament',id:extra}, '', `/tournament/${extra}`);
   if(name==='home')   loadTournamentList();
   if(name==='create') initWizard();
   if(name==='my')     loadMyPage();
   if(name==='tournament'&&extra) openTournament(extra);
 }
+
+// Handle browser back/forward
+window.addEventListener('popstate', e => {
+  const s = e.state;
+  if(!s || s.page==='home') { document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); _id('page-home').classList.add('active'); loadTournamentList(); }
+  else if(s.page==='tournament'&&s.id) { document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); _id('page-tournament').classList.add('active'); openTournament(s.id); }
+  else if(s.page==='create') { document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); _id('page-create').classList.add('active'); initWizard(); }
+  else if(s.page==='my') { document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); _id('page-my').classList.add('active'); loadMyPage(); }
+});
 function setSubTab(el,val){ document.querySelectorAll('#page-home .sub-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); _subTab=val; loadTournamentList(); }
 function setDetailTab(el,val){ document.querySelectorAll('#page-tournament .sub-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); _detailTab=val; renderDetailContent(); }
 function setMyTab(el,val){ document.querySelectorAll('#page-my .sub-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); _myTab=val; loadMyPage(); }
 
 // ── Home ──────────────────────────────────────────────────────────────────────
+let _searchQuery = '';
 async function loadTournamentList() {
   const el=_id('tournament-list');
   el.innerHTML=loader();
@@ -104,6 +119,7 @@ async function loadTournamentList() {
   if(all.error){el.innerHTML=empty('Failed to load tournaments');return;}
   let list=all;
   if(_subTab!=='all') list=all.filter(t=>t.status===_subTab);
+  if(_searchQuery) list=list.filter(t=>t.name.toLowerCase().includes(_searchQuery.toLowerCase())||t.organizer?.toLowerCase().includes(_searchQuery.toLowerCase()));
   list=list.sort((a,b)=>b.createdAt-a.createdAt);
   if(!list.length){
     el.innerHTML=empty(_subTab==='registration'?'No open tournaments yet.':_subTab==='ongoing'?'No live tournaments.':'No tournaments found.')
@@ -164,6 +180,14 @@ async function openTournament(id) {
   _id('detail-title').textContent=t.name;
   const isJudge=_me&&(t.organizerId===_me.id||(t.judges||[]).includes(_me.id));
   _id('judge-tab').style.display=isJudge?'':'none';
+  _id('results-tab').style.display=t.status==='completed'?'':'none';
+  // Auto-show Results tab for completed tournaments
+  if(t.status==='completed' && _detailTab==='details') {
+    _detailTab='results';
+    document.querySelectorAll('#page-tournament .sub-tab').forEach(tab=>{
+      tab.classList.toggle('active', tab.getAttribute('onclick')?.includes("'results'"));
+    });
+  }
   renderDetailContent();
 }
 
@@ -176,6 +200,7 @@ async function renderDetailContent() {
   else if(_detailTab==='pairings') { el.innerHTML=loader(); const d=await api('GET',`/api/tournaments/${_currentDetailId}/pairings`); renderPairingsTab(d,t,isJudge,el); }
   else if(_detailTab==='standings'){ el.innerHTML=loader(); const d=await api('GET',`/api/tournaments/${_currentDetailId}/standings`); renderStandingsTab(d,t,isJudge,el); }
   else if(_detailTab==='players')  { el.innerHTML=loader(); const d=await api('GET',`/api/tournaments/${_currentDetailId}/registrations`); renderPlayersTab(d,t,isJudge,el); }
+  else if(_detailTab==='results')  { el.innerHTML=loader(); const [s,r]=await Promise.all([api('GET',`/api/tournaments/${_currentDetailId}/standings`),api('GET',`/api/tournaments/${_currentDetailId}/registrations`)]); renderResultsTab(s,r,t,el); }
   else if(_detailTab==='judge')    renderJudgePanel(t,el);
 }
 
@@ -386,12 +411,59 @@ function renderStandingsTab(data,t,isJudge,el) {
   if(!data?.length){el.innerHTML=empty('No standings yet');return;}
   const rows=data.map((p,i)=>`<tr class="rank-${i+1}">
     <td class="rank-num">${i+1}</td>
-    <td style="font-weight:500">${esc(p.username)}${p.dropped?` <span class="badge badge-red" style="font-size:10px">dropped</span>`:''}</td>
+    <td style="font-weight:500;cursor:pointer;color:var(--teal)" onclick="showProfile('${esc(p.username)}')">${esc(p.username)}${p.dropped?` <span class="badge badge-red" style="font-size:10px">dropped</span>`:''}</td>
     <td class="record-w">${p.wins}</td><td class="record-l">${p.losses}</td><td class="record-t">${p.ties}</td>
     <td class="text-dim">${(p.owp*100).toFixed(1)}%</td>
     <td class="font-mono text-sm">${p.wins}-${p.losses}${p.ties?'-'+p.ties:''}</td>
   </tr>`).join('');
   el.innerHTML=`<table class="tbl"><thead><tr><th>#</th><th>Player</th><th>W</th><th>L</th><th>T</th><th>OWP</th><th>Record</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderResultsTab(standings, registrations, t, el) {
+  if(!standings?.length){el.innerHTML=empty('No results yet');return;}
+  const regMap={};
+  (registrations||[]).forEach(r=>regMap[r.userId]=r);
+  const top3=standings.slice(0,Math.min(3,standings.length));
+  const rest=standings.slice(3);
+
+  // Podium
+  const medals=['🥇','🥈','🥉'];
+  const podiumColors=['var(--gold)','#b0b8cc','#cd7f32'];
+  let html=`<div style="text-align:center;margin-bottom:32px">
+    <div style="font-family:var(--display);font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:20px">Final Results — ${esc(t.name)}</div>
+    <div style="display:flex;justify-content:center;align-items:flex-end;gap:16px;margin-bottom:24px">
+      ${[1,0,2].filter(i=>top3[i]).map(i=>{
+        const p=top3[i];
+        const reg=regMap[p.userId];
+        const h=i===0?120:i===1?100:80;
+        return `<div style="text-align:center">
+          <div style="font-size:${i===0?'28':'22'}px;margin-bottom:6px">${medals[i]}</div>
+          <div style="font-weight:700;font-size:${i===0?'15':'13'}px;margin-bottom:4px;cursor:pointer;color:var(--text)" onclick="showProfile('${esc(p.username)}')">${esc(p.username)}</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px">${p.wins}W-${p.losses}L</div>
+          <div style="background:${podiumColors[i]};border-radius:6px 6px 0 0;width:80px;height:${h}px;margin:0 auto;opacity:.3"></div>
+          <div style="font-size:12px;font-weight:700;color:${podiumColors[i]};background:${podiumColors[i]}22;border:1px solid ${podiumColors[i]}44;border-radius:4px;padding:2px 8px">#${i+1}</div>
+          ${reg?.decks?.length?`<div style="font-size:10px;color:var(--text3);margin-top:4px">${reg.decks.map(d=>`<span class="badge badge-blue" style="cursor:pointer;font-size:9px" onclick="window.open('/deck.html?t=${esc(t.id)}&u=${esc(p.userId)}&d=${reg.decks.indexOf(d)}','_blank')">${esc(d.name)}</span>`).join(' ')}</div>`:''}
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+
+  // Full standings
+  if(rest.length) {
+    html+=`<table class="tbl"><thead><tr><th>#</th><th>Player</th><th>Record</th><th>Decks</th></tr></thead><tbody>
+    ${rest.map((p,i)=>{
+      const reg=regMap[p.userId];
+      return `<tr>
+        <td class="rank-num">${i+4}</td>
+        <td style="font-weight:500;cursor:pointer;color:var(--teal)" onclick="showProfile('${esc(p.username)}')">${esc(p.username)}</td>
+        <td class="font-mono text-sm">${p.wins}-${p.losses}</td>
+        <td>${reg?.decks?.map((d,di)=>`<span class="badge badge-blue" style="cursor:pointer;font-size:10px" onclick="window.open('/deck.html?t=${esc(t.id)}&u=${esc(p.userId)}&d=${di}','_blank')">${esc(d.name)}</span>`).join(' ')||'—'}</td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>`;
+  }
+
+  el.innerHTML=html;
 }
 
 function renderPlayersTab(data,t,isJudge,el) {
@@ -762,7 +834,6 @@ async function doResetPassword() {
   openModal('modal-login');
 }
 
-// Check for reset token on page load
 function checkResetToken() {
   const token = new URLSearchParams(window.location.search).get('token');
   if(token) { _id('modal-reset').style.display = 'flex'; }
@@ -1259,14 +1330,33 @@ async function submitEditDecks() {
   renderDetailContent();
 }
 
-// ── Join Link Handler ─────────────────────────────────────────────────────────
+// ── Join Link & URL Routing ───────────────────────────────────────────────────
 async function checkJoinParam() {
+  const path = location.pathname;
   const params = new URLSearchParams(location.search);
+
+  // Clean tournament URL: /tournament/ID
+  const tourMatch = path.match(/^\/tournament\/([a-f0-9-]+)$/i);
+  if(tourMatch) {
+    _detailTab='details';
+    showPage('tournament', tourMatch[1]);
+    return;
+  }
+  // Organize page
+  if(path==='/organize') { showPage('create'); return; }
+  // My events
+  if(path==='/my-events') { showPage('my'); return; }
+  // Join param or t param
   const joinId = params.get('join') || params.get('t');
   if(joinId) {
-    window.history.replaceState({}, '', '/');
+    window.history.replaceState({page:'tournament',id:joinId}, '', `/tournament/${joinId}`);
+    _detailTab='details';
     openTournament(joinId);
+    return;
   }
+  // Reset token
+  const token = params.get('token');
+  if(token) { _id('modal-reset').style.display='flex'; }
 }
 
 // ── Profile Page ──────────────────────────────────────────────────────────────

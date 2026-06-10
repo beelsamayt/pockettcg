@@ -38,11 +38,14 @@
   <div class="page-hdr">
     <div class="page-hdr-inner">
       <h1>Pokémon TCG Pocket</h1>
-      <div class="sub-tabs">
-        <div class="sub-tab active" onclick="setSubTab(this,'all')">All</div>
-        <div class="sub-tab" onclick="setSubTab(this,'ongoing')">Live</div>
-        <div class="sub-tab" onclick="setSubTab(this,'registration')">Registration Open</div>
-        <div class="sub-tab" onclick="setSubTab(this,'completed')">Completed</div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+        <div class="sub-tabs" style="margin-bottom:0;flex:1">
+          <div class="sub-tab active" onclick="setSubTab(this,'all')">All</div>
+          <div class="sub-tab" onclick="setSubTab(this,'ongoing')">Live</div>
+          <div class="sub-tab" onclick="setSubTab(this,'registration')">Registration Open</div>
+          <div class="sub-tab" onclick="setSubTab(this,'completed')">Completed</div>
+        </div>
+        <input class="form-input" placeholder="🔍 Search tournaments…" style="width:200px;flex-shrink:0" oninput="_searchQuery=this.value;loadTournamentList()">
       </div>
     </div>
   </div>
@@ -60,6 +63,7 @@
         <div class="sub-tab" onclick="setDetailTab(this,'pairings')">Pairings</div>
         <div class="sub-tab" onclick="setDetailTab(this,'standings')">Standings</div>
         <div class="sub-tab" onclick="setDetailTab(this,'players')">Players</div>
+        <div class="sub-tab" id="results-tab" style="display:none" onclick="setDetailTab(this,'results')">🏆 Results</div>
         <div class="sub-tab" id="judge-tab" style="display:none" onclick="setDetailTab(this,'judge')">⚖ Judge Panel</div>
       </div>
     </div>

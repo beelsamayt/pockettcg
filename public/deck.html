@@ -109,12 +109,16 @@ async function init() {
   document.title = `${reg.username} — ${deck.name} | PocketTCG`;
   document.getElementById('dtitle').textContent = `${reg.username} — ${deck.name}`;
 
-  // Parse list
+  // Parse list — strip trailing set codes like "A1 036" or "P-A 7"
   const lines = (deck.list || '').trim().split('\n').filter(Boolean);
   const cards = [];
   for (const line of lines) {
-    const m = line.trim().match(/^(\d+)\s+(.+?)(?:\s+[A-Za-z0-9]+\s+\d+\s*)?$/);
-    if (m) cards.push({ qty: parseInt(m[1]), name: m[2].trim() });
+    const m = line.trim().match(/^(\d+)\s+(.+?)(?:\s+[A-Za-z0-9-]+\s+\d+\s*)?$/);
+    if (m) {
+      // Also strip trailing set codes that got merged into name: "Professor's Research P-A 7" -> "Professor's Research"
+      let name = m[2].trim().replace(/\s+[A-Z][A-Za-z0-9-]*\s+\d+$/, '').trim();
+      cards.push({ qty: parseInt(m[1]), name });
+    }
   }
 
   if (!cards.length) {

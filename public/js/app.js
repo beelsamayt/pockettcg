@@ -535,8 +535,229 @@ async function orgDrop(userId) {
   toast('Player dropped.','info'); renderDetailContent();
 }
 
-// ── Registration ──────────────────────────────────────────────────────────────
-function openRegistration() {
+// ── Password Reset ────────────────────────────────────────────────────────────
+function showForgotPassword(show=true) {
+  _id('login-form').style.display = show ? 'none' : '';
+  _id('forgot-form').style.display = show ? '' : 'none';
+  if(show) setTimeout(() => _id('forgot-email')?.focus(), 50);
+}
+
+async function doForgotPassword() {
+  const email = _id('forgot-email')?.value?.trim();
+  if(!email) return toast('Enter your email','error');
+  const btn = event.target;
+  btn.textContent = 'Sending…'; btn.disabled = true;
+  const r = await api('POST','/api/forgot-password',{ email });
+  btn.textContent = 'Send Reset Link'; btn.disabled = false;
+  if(r.error) return toast(r.error,'error');
+  _id('forgot-form').innerHTML = `<div style="text-align:center;padding:20px 0">
+    <div style="font-size:32px;margin-bottom:12px">📧</div>
+    <div style="font-weight:600;font-size:15px;margin-bottom:8px">Check your inbox</div>
+    <div style="color:var(--text2);font-size:13px">We sent a reset link to <strong>${esc(email)}</strong>.<br>It expires in 1 hour.</div>
+  </div>`;
+}
+
+async function doResetPassword() {
+  const pass = _id('reset-pass')?.value;
+  const pass2 = _id('reset-pass2')?.value;
+  if(!pass || pass.length < 6) return toast('Password must be at least 6 characters','error');
+  if(pass !== pass2) return toast('Passwords do not match','error');
+  const token = new URLSearchParams(window.location.search).get('token');
+  const r = await api('POST','/api/reset-password',{ token, password: pass });
+  if(r.error) return toast(r.error,'error');
+  closeModal('modal-reset');
+  toast('Password updated! You can now log in.','success');
+  window.history.replaceState({}, '', '/');
+  openModal('modal-login');
+}
+
+// Check for reset token on page load
+function checkResetToken() {
+  const token = new URLSearchParams(window.location.search).get('token');
+  if(token) { _id('modal-reset').style.display = 'flex'; }
+}
+
+// ── Deck Builder (Limitless style) ────────────────────────────────────────────
+// Pokémon TCG Pocket card database (top meta cards for autocomplete)
+const POCKET_CARDS = [
+  // Genetic Apex
+  'Charizard ex','Pikachu ex','Mewtwo ex','Mew ex','Eevee ex','Venusaur ex','Blastoise ex',
+  'Gengar ex','Gyarados ex','Dragonite ex','Raichu ex','Nidoking ex','Clefable ex','Articuno ex',
+  'Zapdos ex','Moltres ex','Snorlax ex','Marowak ex','Alakazam ex','Machamp ex',
+  'Charmander','Charmeleon','Squirtle','Wartortle','Bulbasaur','Ivysaur',
+  'Pikachu','Raichu','Mewtwo','Jigglypuff','Wigglytuff','Clefairy',
+  'Poké Ball','Professor\'s Research','Misty','Brock','Giovanni','Sabrina','Lt. Surge',
+  'Red Card','PokéStop','Potion','X Speed','Rocky Helmet','Cape of Toughness',
+  // Mythical Island
+  'Celebi ex','Marshadow ex','Gardevoir ex','Sylveon ex','Leafeon ex','Glaceon ex',
+  // Space-Time Smackdown
+  'Dialga ex','Palkia ex','Giratina ex','Darkrai ex','Cresselia ex',
+  // Triumphant Light
+  'Arceus ex','Shaymin ex','Regigigas ex',
+  // Shining Revelations
+  'Reshiram ex','Zekrom ex','Kyurem ex',
+  // Paradox Drive
+  'Roaring Moon ex','Iron Valiant ex','Flutter Mane ex','Great Tusk ex',
+  // Trainers
+  'Professor Oak','Cyrus','Iono','Arven','Penny','Giacomo','Tulip',
+  'Nest Ball','Ultra Ball','Super Incubator','Rare Candy',
+];
+
+let _deckBuilderMode = 'text'; // 'text' | 'visual'
+
+function renderTregModal() {
+  const t = _tregTournament;
+  const minD = t.minDecks||1, maxD = t.maxDecks||1;
+  const mm = MATCH_MODES[t.phases?.[0]?.matchMode];
+
+  let html = '';
+  if(mm) html += `<div class="mode-info mb-16"><strong>${mm.icon} ${mm.label}</strong> — ${mm.desc}</div>`;
+  html += `<p style="color:var(--text2);font-size:13px;margin-bottom:16px">Submit ${minD===maxD?minD:minD+'–'+maxD} deck(s).${t.deckRules?` <strong style="color:var(--text)">Rules:</strong> ${esc(t.deckRules)}`:''}`;
+  if(t.entryType==='code') html += `<div class="form-group"><label>Entry Code</label><input class="form-input" id="treg-code" placeholder="Enter code"></div>`;
+
+  _tregDecks.forEach((d,i) => {
+    const cardCount = countCards(d.list);
+    html += `<div class="deck-slot">
+      <div class="deck-slot-hdr">
+        <span class="deck-slot-title">Deck ${i+1}${i<minD?' <span style="color:var(--accent);font-size:10px">required</span>':''}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;color:${cardCount===20?'var(--teal)':cardCount>20?'var(--red)':'var(--text3)'}">${cardCount}/20 cards</span>
+          ${i>=minD?`<button class="deck-remove-btn" onclick="tregRemoveDeck(${i})">×</button>`:''}
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:8px">
+        <label>Deck Name</label>
+        <input class="form-input" placeholder="e.g. Charizard ex" value="${esc(d.name)}" id="treg-name-${i}">
+      </div>
+      <div class="deck-builder-tabs" style="display:flex;gap:0;margin-bottom:8px;border-bottom:1px solid var(--border)">
+        <div class="deck-tab ${d.mode!=='visual'?'active':''}" onclick="setDeckMode(${i},'text')" style="padding:6px 14px;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid ${d.mode!=='visual'?'var(--accent)':'transparent'};color:${d.mode!=='visual'?'var(--text)':'var(--text3)'}">Text Import</div>
+        <div class="deck-tab ${d.mode==='visual'?'active':''}" onclick="setDeckMode(${i},'visual')" style="padding:6px 14px;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid ${d.mode==='visual'?'var(--accent)':'transparent'};color:${d.mode==='visual'?'var(--text)':'var(--text3)'}">Card Search</div>
+      </div>
+      ${d.mode==='visual' ? renderCardSearch(d, i) : renderTextInput(d, i)}
+    </div>`;
+  });
+
+  if(_tregDecks.length < maxD) html += `<button class="add-deck-btn" onclick="tregAddDeck()">+ Add Deck ${_tregDecks.length+1}</button>`;
+  html += `<button class="btn btn-primary btn-block" onclick="submitRegistration()">Register (${_tregDecks.length} deck${_tregDecks.length>1?'s':''})</button>`;
+  _id('treg-content').innerHTML = html;
+}
+
+function renderTextInput(d, i) {
+  return `<div class="form-group" style="margin-bottom:0">
+    <label style="display:flex;justify-content:space-between;align-items:center">
+      Decklist
+      <span style="font-size:11px;color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">Paste export from TCG Pocket or type manually</span>
+    </label>
+    <textarea class="form-input" style="min-height:120px;font-size:12px;font-family:monospace;line-height:1.6"
+      placeholder="2 Charizard ex A1 036&#10;2 Charmander A1 034&#10;2 Charmeleon A1 035&#10;2 Moltres ex A1 030&#10;..." 
+      id="treg-list-${i}" oninput="onDeckTextChange(${i},this.value)">${esc(d.list)}</textarea>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px">Format: <code style="background:var(--bg);padding:1px 4px;border-radius:3px">2 Charizard ex A1 036</code> — qty, name, set, number</div>
+  </div>`;
+}
+
+function renderCardSearch(d, i) {
+  const cards = d.cards || {};
+  const total = Object.values(cards).reduce((a,b)=>a+b,0);
+  return `<div>
+    <div style="position:relative;margin-bottom:10px">
+      <input class="form-input" id="card-search-${i}" placeholder="Search cards… (e.g. Charizard, Professor)" 
+        oninput="onCardSearch(${i},this.value)" autocomplete="off"
+        style="padding-right:36px">
+      <div id="card-suggestions-${i}" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface2);border:1px solid var(--border);border-radius:0 0 var(--r) var(--r);z-index:100;max-height:200px;overflow-y:auto"></div>
+    </div>
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);min-height:80px;padding:10px">
+      ${total===0 ? '<div style="color:var(--text3);font-size:13px;text-align:center;padding:16px 0">Search and add cards above</div>' :
+        Object.entries(cards).map(([name,qty]) => `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:13px">${esc(name)}</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <button onclick="changeCardQty(${i},'${esc(name)}',-1)" style="width:22px;height:22px;border-radius:4px;background:var(--surface3);border:none;color:var(--text);cursor:pointer;font-size:14px">−</button>
+              <span style="font-size:13px;font-weight:600;min-width:16px;text-align:center">${qty}</span>
+              <button onclick="changeCardQty(${i},'${esc(name)}',1)" style="width:22px;height:22px;border-radius:4px;background:var(--surface3);border:none;color:var(--text);cursor:pointer;font-size:14px">+</button>
+            </div>
+          </div>`).join('')
+      }
+    </div>
+    <div style="text-align:right;font-size:12px;margin-top:6px;color:${total===20?'var(--teal)':total>20?'var(--red)':'var(--text3)'}">
+      ${total}/20 cards ${total===20?'✓ Ready':total>20?'⚠ Too many cards':''}
+    </div>
+  </div>`;
+}
+
+function countCards(list) {
+  if(!list) return 0;
+  return list.trim().split('\n').reduce((sum, line) => {
+    const m = line.trim().match(/^(\d+)\s+/);
+    return sum + (m ? parseInt(m[1]) : 0);
+  }, 0);
+}
+
+function setDeckMode(i, mode) {
+  tregSave();
+  _tregDecks[i].mode = mode;
+  if(mode === 'visual' && !_tregDecks[i].cards) {
+    // Parse existing text list into cards object
+    _tregDecks[i].cards = parseTextToCards(_tregDecks[i].list);
+  }
+  renderTregModal();
+}
+
+function parseTextToCards(text) {
+  if(!text) return {};
+  const cards = {};
+  for(const line of text.trim().split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(.+?)(?:\s+[A-Z0-9]+\s+\d+)?$/);
+    if(m) cards[m[2].trim()] = parseInt(m[1]);
+  }
+  return cards;
+}
+
+function cardsToText(cards) {
+  return Object.entries(cards).map(([name,qty]) => `${qty} ${name}`).join('\n');
+}
+
+function onDeckTextChange(i, value) {
+  _tregDecks[i].list = value;
+  // Update counter live
+  const cardCount = countCards(value);
+  const counter = document.querySelector(`#treg-content .deck-slot:nth-child(${i+1}) span[style*="12px"]`);
+  // Just re-render the counter
+}
+
+function onCardSearch(i, query) {
+  const sugEl = _id(`card-suggestions-${i}`);
+  if(!query.trim()) { sugEl.style.display='none'; return; }
+  const matches = POCKET_CARDS.filter(c => c.toLowerCase().includes(query.toLowerCase())).slice(0,8);
+  if(!matches.length) { sugEl.style.display='none'; return; }
+  sugEl.innerHTML = matches.map(c => `<div onclick="addCard(${i},'${esc(c)}')" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--surface3)'" onmouseout="this.style.background=''">${esc(c)}</div>`).join('');
+  sugEl.style.display = 'block';
+}
+
+function addCard(i, name) {
+  tregSave();
+  if(!_tregDecks[i].cards) _tregDecks[i].cards = {};
+  const current = _tregDecks[i].cards[name] || 0;
+  const total = Object.values(_tregDecks[i].cards).reduce((a,b)=>a+b,0);
+  if(total >= 20) return toast('Deck is already at 20 cards','error');
+  if(current >= 2) return toast('Maximum 2 copies per card','error');
+  _tregDecks[i].cards[name] = current + 1;
+  _tregDecks[i].list = cardsToText(_tregDecks[i].cards);
+  _id(`card-search-${i}`).value = '';
+  renderTregModal();
+}
+
+function changeCardQty(i, name, delta) {
+  tregSave();
+  if(!_tregDecks[i].cards) return;
+  const current = _tregDecks[i].cards[name] || 0;
+  const newQty = current + delta;
+  if(newQty <= 0) delete _tregDecks[i].cards[name];
+  else if(delta > 0 && Object.values(_tregDecks[i].cards).reduce((a,b)=>a+b,0) >= 20) return toast('Deck is already at 20 cards','error');
+  else if(newQty > 2) return toast('Maximum 2 copies per card','error');
+  else _tregDecks[i].cards[name] = newQty;
+  _tregDecks[i].list = cardsToText(_tregDecks[i].cards);
+  renderTregModal();
+}
   if(!_token) return openModal('modal-login');
   _tregTournament=_currentTournament;
   _tregDecks=Array.from({length:_tregTournament.minDecks},()=>({name:'',list:''}));
@@ -764,3 +985,4 @@ function onEntryTypeChange(val){
 // ── Init ──────────────────────────────────────────────────────────────────────
 refreshAuthUI();
 loadTournamentList();
+checkResetToken();

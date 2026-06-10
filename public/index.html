@@ -218,10 +218,21 @@
 <div class="modal-overlay" id="modal-login" style="display:none" onclick="closeModalOut(event,'modal-login')">
   <div class="modal">
     <div class="modal-hdr"><div class="modal-title">Log in</div><button class="modal-close" onclick="closeModal('modal-login')">×</button></div>
-    <div class="form-group"><label>Username</label><input class="form-input" id="login-user" autocomplete="username"></div>
-    <div class="form-group"><label>Password</label><input class="form-input" type="password" id="login-pass" onkeydown="if(event.key==='Enter')doLogin()"></div>
-    <button class="btn btn-primary btn-block" onclick="doLogin()">Log in</button>
-    <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--text2)">No account? <span style="color:var(--accent);cursor:pointer" onclick="closeModal('modal-login');openModal('modal-register')">Sign up</span></div>
+    <div id="login-form">
+      <div class="form-group"><label>Username</label><input class="form-input" id="login-user" autocomplete="username"></div>
+      <div class="form-group">
+        <label style="display:flex;justify-content:space-between">Password <span style="color:var(--accent);cursor:pointer;font-weight:400;text-transform:none;letter-spacing:0" onclick="showForgotPassword()">Forgot password?</span></label>
+        <input class="form-input" type="password" id="login-pass" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <button class="btn btn-primary btn-block" onclick="doLogin()">Log in</button>
+      <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--text2)">No account? <span style="color:var(--accent);cursor:pointer" onclick="closeModal('modal-login');openModal('modal-register')">Sign up</span></div>
+    </div>
+    <div id="forgot-form" style="display:none">
+      <p style="color:var(--text2);font-size:13px;margin-bottom:16px">Enter your email address and we'll send you a reset link.</p>
+      <div class="form-group"><label>Email</label><input class="form-input" type="email" id="forgot-email" placeholder="your@email.com" onkeydown="if(event.key==='Enter')doForgotPassword()"></div>
+      <button class="btn btn-primary btn-block" onclick="doForgotPassword()">Send Reset Link</button>
+      <div style="text-align:center;margin-top:14px;font-size:13px"><span style="color:var(--accent);cursor:pointer" onclick="showForgotPassword(false)">← Back to login</span></div>
+    </div>
   </div>
 </div>
 
@@ -229,10 +240,20 @@
   <div class="modal">
     <div class="modal-hdr"><div class="modal-title">Create account</div><button class="modal-close" onclick="closeModal('modal-register')">×</button></div>
     <div class="form-group"><label>Username *</label><input class="form-input" id="reg-user" autocomplete="username"></div>
-    <div class="form-group"><label>Email (optional)</label><input class="form-input" type="email" id="reg-email"></div>
-    <div class="form-group"><label>Password *</label><input class="form-input" type="password" id="reg-pass" onkeydown="if(event.key==='Enter')doRegister()"></div>
+    <div class="form-group"><label>Email * <span style="color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">(required for password recovery)</span></label><input class="form-input" type="email" id="reg-email" autocomplete="email"></div>
+    <div class="form-group"><label>Password *</label><input class="form-input" type="password" id="reg-pass" autocomplete="new-password" onkeydown="if(event.key==='Enter')doRegister()"></div>
     <button class="btn btn-primary btn-block" onclick="doRegister()">Create account</button>
     <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--text2)">Have an account? <span style="color:var(--accent);cursor:pointer" onclick="closeModal('modal-register');openModal('modal-login')">Log in</span></div>
+  </div>
+</div>
+
+<!-- Reset Password page (shown when ?token= in URL) -->
+<div class="modal-overlay" id="modal-reset" style="display:none">
+  <div class="modal">
+    <div class="modal-hdr"><div class="modal-title">Set New Password</div></div>
+    <div class="form-group"><label>New Password</label><input class="form-input" type="password" id="reset-pass" placeholder="At least 6 characters" onkeydown="if(event.key==='Enter')doResetPassword()"></div>
+    <div class="form-group"><label>Confirm Password</label><input class="form-input" type="password" id="reset-pass2" onkeydown="if(event.key==='Enter')doResetPassword()"></div>
+    <button class="btn btn-primary btn-block" onclick="doResetPassword()">Set New Password</button>
   </div>
 </div>
 

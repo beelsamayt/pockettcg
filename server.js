@@ -486,6 +486,56 @@ app.get('/api/my/judging', auth, async (req, res) => {
 
 app.get('/api/match-modes', (req, res) => res.json(MATCH_MODES));
 
+// ══════════════════════════════════════════════════════════════════════════════
+// PASSWORD RESET
+// ══════════════════════════════════════════════════════════════════════════════
+const { Resend } = require('resend');
+const crypto = require('crypto');
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+app.post('/api/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email required' });
+    const user = await db.getUserByEmail(email.trim());
+    // Always return ok to avoid email enumeration
+    if (!user) return res.json({ ok: true });
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = Date.now() + 60 * 60 * 1000; // 1 hour
+    await db.saveResetToken(user.id, token, expiresAt);
+    const resetUrl = `${process.env.APP_URL || 'https://pockettcg-production.up.railway.app'}/reset-password?token=${token}`;
+    await resend.emails.send({
+      from: 'PocketTCG <noreply@resend.dev>',
+      to: email.trim(),
+      subject: 'Reset your PocketTCG password',
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;background:#1a1a2e;color:#e8eaf0;padding:32px;border-radius:12px">
+          <h2 style="color:#e94560;margin-bottom:8px">⚡ PocketTCG</h2>
+          <h3 style="margin-bottom:16px">Password Reset</h3>
+          <p style="color:#9aa5c4;margin-bottom:24px">You requested a password reset for your account <strong style="color:#fff">${user.username}</strong>. Click the button below to set a new password.</p>
+          <a href="${resetUrl}" style="display:inline-block;background:#e94560;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Reset Password</a>
+          <p style="color:#6b7a9e;font-size:12px;margin-top:24px">This link expires in 1 hour. If you didn't request this, ignore this email.</p>
+        </div>
+      `
+    });
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/reset-password', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ error: 'Token and password required' });
+    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    const record = await db.getResetToken(token);
+    if (!record) return res.status(400).json({ error: 'Invalid or expired reset link' });
+    const hash = await bcrypt.hash(password, 10);
+    await db.updateUserPassword(record.user_id, hash);
+    await db.markResetTokenUsed(token);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/{*path}', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 db.init().then(() => {

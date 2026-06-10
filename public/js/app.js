@@ -1,0 +1,766 @@
+'use strict';
+/* PocketTCG Frontend v3 — English, Wizard, Full Judge Panel */
+
+const API = '';
+let _token = localStorage.getItem('ptcg_token');
+let _me    = JSON.parse(localStorage.getItem('ptcg_me') || 'null');
+let _currentDetailId = null;
+let _currentTournament = null;
+let _myReg = null;
+let _detailTab = 'details';
+let _subTab = 'all';
+let _myTab = 'organized';
+let _phases = [];
+let _tregDecks = [];
+let _tregTournament = null;
+let _resultMatch = null;
+let _wizardStep = 1;
+
+const MATCH_MODES = {
+  'Bo1':          { icon:'1️⃣', label:'Best of 1',          desc:'Single game decides the match.' },
+  'Bo3':          { icon:'3️⃣', label:'Best of 3',          desc:'First to win 2 games.' },
+  'Bo5':          { icon:'5️⃣', label:'Best of 5',          desc:'First to win 3 games.' },
+  '2-Game':       { icon:'2️⃣', label:'2-Game Format',      desc:'Exactly 2 games. Ties possible.' },
+  'Conquest':     { icon:'⚔️', label:'Conquest',           desc:'Win once with each of your decks. First to conquer all wins.' },
+  'LastHero':     { icon:'🦸', label:'Last Hero Standing', desc:'Loser swaps deck. Winner keeps theirs.' },
+  'BringBanPick': { icon:'🚫', label:'Bring 2 Ban 1',      desc:'Bring 2 decks, ban 1 opponent deck, Bo3 with the rest.' },
+  'Specialist':   { icon:'🎯', label:'Specialist',         desc:'Lock in 1 deck for all games. No swapping.' },
+};
+const PHASE_TYPES = {
+  'swiss':       { icon:'🔄', label:'Swiss' },
+  'single_elim': { icon:'🏆', label:'Single Elimination' },
+  'double_elim': { icon:'💪', label:'Double Elimination' },
+  'round_robin': { icon:'♻️', label:'Round Robin' },
+};
+const PENALTY_TYPES = [
+  { value:'warning',    label:'Warning',    color:'warning' },
+  { value:'game_loss',  label:'Game Loss',  color:'game_loss' },
+  { value:'match_loss', label:'Match Loss', color:'match_loss' },
+  { value:'dq',         label:'Disqualification', color:'dq' },
+];
+
+// ── API ───────────────────────────────────────────────────────────────────────
+async function api(method, url, body) {
+  const opts = { method, headers:{'Content-Type':'application/json'} };
+  if (_token) opts.headers['Authorization'] = 'Bearer '+_token;
+  if (body)   opts.body = JSON.stringify(body);
+  try { const r = await fetch(API+url, opts); return await r.json(); }
+  catch(e) { return { error:'Network error' }; }
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+async function doLogin() {
+  const u=_v('login-user'), p=_v('login-pass');
+  if(!u||!p) return toast('Fill in all fields','error');
+  const r = await api('POST','/api/login',{username:u,password:p});
+  if(r.error) return toast(r.error,'error');
+  saveAuth(r); closeModal('modal-login'); toast('Welcome, '+r.username+'!','success'); refreshAuthUI();
+}
+async function doRegister() {
+  const u=_v('reg-user'), p=_v('reg-pass'), e=_v('reg-email');
+  if(!u||!p) return toast('Username and password required','error');
+  const r = await api('POST','/api/register',{username:u,password:p,email:e});
+  if(r.error) return toast(r.error,'error');
+  saveAuth(r); closeModal('modal-register'); toast('Account created!','success'); refreshAuthUI();
+}
+function saveAuth(r) {
+  _token=r.token; _me={id:r.id,username:r.username};
+  localStorage.setItem('ptcg_token',_token); localStorage.setItem('ptcg_me',JSON.stringify(_me));
+}
+function logout() {
+  _token=null; _me=null;
+  localStorage.removeItem('ptcg_token'); localStorage.removeItem('ptcg_me');
+  refreshAuthUI(); showPage('home');
+}
+function refreshAuthUI() {
+  const li=!!_token;
+  _id('auth-out').style.display=li?'none':'flex';
+  _id('auth-in').style.display=li?'flex':'none';
+  _id('tab-create').style.display=li?'':'none';
+  _id('tab-my').style.display=li?'':'none';
+  if(li) _id('nav-username').textContent=_me.username;
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+function showPage(name, extra) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  _id('page-'+name)?.classList.add('active');
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.toggle('active',t.dataset.page===name));
+  window.scrollTo(0,0);
+  if(name==='home')   loadTournamentList();
+  if(name==='create') initWizard();
+  if(name==='my')     loadMyPage();
+  if(name==='tournament'&&extra) openTournament(extra);
+}
+function setSubTab(el,val){ document.querySelectorAll('#page-home .sub-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); _subTab=val; loadTournamentList(); }
+function setDetailTab(el,val){ document.querySelectorAll('#page-tournament .sub-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); _detailTab=val; renderDetailContent(); }
+function setMyTab(el,val){ document.querySelectorAll('#page-my .sub-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); _myTab=val; loadMyPage(); }
+
+// ── Home ──────────────────────────────────────────────────────────────────────
+async function loadTournamentList() {
+  const el=_id('tournament-list');
+  el.innerHTML=loader();
+  const all=await api('GET','/api/tournaments');
+  if(all.error){el.innerHTML=empty('Failed to load tournaments');return;}
+  let list=all;
+  if(_subTab!=='all') list=all.filter(t=>t.status===_subTab);
+  list=list.sort((a,b)=>b.createdAt-a.createdAt);
+  if(!list.length){
+    el.innerHTML=empty(_subTab==='registration'?'No open tournaments yet.':_subTab==='ongoing'?'No live tournaments.':'No tournaments found.')
+      +(_token?`<div style="text-align:center;margin-top:-20px"><button class="btn btn-primary" onclick="showPage('create')">Create one</button></div>`:'');
+    return;
+  }
+  const groups={ongoing:[],registration:[],completed:[]};
+  list.forEach(t=>(groups[t.status]||groups.completed).push(t));
+  let html='';
+  if(groups.ongoing.length)      html+=buildTournamentTable('Live',groups.ongoing,'ongoing');
+  if(groups.registration.length) html+=buildTournamentTable('Registration Open',groups.registration,'registration');
+  if(groups.completed.length)    html+=buildTournamentTable('Completed',groups.completed,'completed');
+  el.innerHTML=html||empty('No tournaments in this category');
+}
+
+function buildTournamentTable(title,list,type) {
+  const rows=list.map(t=>{
+    const mm=t.phases?.[0]?.matchMode||'Bo3';
+    const deckBadge=t.maxDecks>1?`<span class="badge badge-purple">${t.minDecks}–${t.maxDecks} decks</span>`:`<span class="badge badge-blue">1 deck</span>`;
+    const phases=(t.phases||[]).map(p=>`<span class="badge badge-gray" style="font-size:10px">${PHASE_TYPES[p.type]?.label||p.type}</span>`).join(' ');
+    const prize=t.prizePool?`<div class="text-xs text-gold mt-8">🏆 ${esc(t.prizePool)}</div>`:'';
+    if(type==='registration') return `<tr>
+      <td><span class="t-link" onclick="openTournament('${t.id}')">${esc(t.name)}</span>${prize}</td>
+      <td>${phases} <span class="badge badge-teal" style="font-size:10px">${MATCH_MODES[mm]?.icon||''} ${mm}</span></td>
+      <td>${deckBadge}</td>
+      <td class="text-muted">${t.playerCount}${t.maxPlayers?'/'+t.maxPlayers:''}</td>
+      <td class="text-dim">${esc(t.organizer)}</td>
+      <td><button class="btn btn-primary btn-sm" onclick="openTournament('${t.id}')">Register</button></td>
+    </tr>`;
+    return `<tr>
+      <td><span class="t-link" onclick="openTournament('${t.id}')">${esc(t.name)}</span>${prize}</td>
+      <td>${phases}</td>
+      <td>${deckBadge}</td>
+      <td class="text-muted">${t.playerCount}</td>
+      <td class="text-dim">${esc(t.organizer)}</td>
+      <td>${type==='ongoing'?'<span class="badge badge-green">● Live</span>':''}</td>
+    </tr>`;
+  }).join('');
+  const cols=type==='registration'
+    ?'<th>Tournament</th><th>Format</th><th>Decks</th><th>Players</th><th>Organizer</th><th></th>'
+    :'<th>Tournament</th><th>Format</th><th>Decks</th><th>Players</th><th>Organizer</th><th></th>';
+  return `<div style="margin-bottom:28px">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">${title}</div>
+    <table class="tbl"><thead><tr>${cols}</tr></thead><tbody>${rows}</tbody></table>
+  </div>`;
+}
+
+// ── Tournament Detail ─────────────────────────────────────────────────────────
+async function openTournament(id) {
+  _currentDetailId=id; _detailTab='details'; _currentTournament=null; _myReg=null;
+  showPage('tournament');
+  _id('detail-title').textContent='Loading…';
+  _id('tournament-content').innerHTML=loader();
+  document.querySelectorAll('#page-tournament .sub-tab').forEach((t,i)=>t.classList.toggle('active',i===0));
+  const [t,myReg]=await Promise.all([api('GET',`/api/tournaments/${id}`),_token?api('GET',`/api/tournaments/${id}/my-registration`):Promise.resolve(null)]);
+  if(t.error){_id('tournament-content').innerHTML=empty('Tournament not found');return;}
+  _currentTournament=t; _myReg=myReg;
+  _id('detail-title').textContent=t.name;
+  const isJudge=_me&&(t.organizerId===_me.id||(t.judges||[]).includes(_me.id));
+  _id('judge-tab').style.display=isJudge?'':'none';
+  renderDetailContent();
+}
+
+async function renderDetailContent() {
+  const t=_currentTournament;
+  const el=_id('tournament-content');
+  const isOrg=_me&&t.organizerId===_me.id;
+  const isJudge=_me&&(isOrg||(t.judges||[]).includes(_me.id));
+  if(_detailTab==='details')       renderDetailsTab(t,isOrg,isJudge,el);
+  else if(_detailTab==='pairings') { el.innerHTML=loader(); const d=await api('GET',`/api/tournaments/${_currentDetailId}/pairings`); renderPairingsTab(d,t,isJudge,el); }
+  else if(_detailTab==='standings'){ el.innerHTML=loader(); const d=await api('GET',`/api/tournaments/${_currentDetailId}/standings`); renderStandingsTab(d,t,isJudge,el); }
+  else if(_detailTab==='players')  { el.innerHTML=loader(); const d=await api('GET',`/api/tournaments/${_currentDetailId}/registrations`); renderPlayersTab(d,t,isJudge,el); }
+  else if(_detailTab==='judge')    renderJudgePanel(t,el);
+}
+
+function renderDetailsTab(t,isOrg,isJudge,el) {
+  const phase0=t.phases?.[0]||{};
+  const mm=MATCH_MODES[phase0.matchMode]||MATCH_MODES['Bo3'];
+  const fill=t.maxPlayers?Math.round((t.registrations?.length||0)/t.maxPlayers*100):0;
+  let actions='';
+  if(!_token){
+    if(t.status==='registration') actions=`<button class="btn btn-primary btn-block" onclick="openModal('modal-login')">Log in to Register</button>`;
+  } else if(_myReg&&!_myReg.waitlist&&!_myReg.dropped) {
+    actions=`<div class="reg-status"><strong>✓ You are registered</strong><span>${(_myReg.decks||[]).length} deck(s) submitted</span></div>
+      <button class="btn btn-outline btn-block btn-sm mb-8" onclick="openMyDecks()">View my decklists</button>
+      ${t.status==='registration'?`<button class="btn btn-danger btn-block btn-sm" onclick="doDrop()">Drop from tournament</button>`:''}`;
+    if(t.checkinRequired&&!_myReg.checkedIn&&t.status==='registration')
+      actions=`<button class="btn btn-teal btn-block mb-8" onclick="doCheckin()">✓ Check In</button>`+actions;
+  } else if(_myReg?.waitlist) {
+    actions=`<div class="reg-status" style="border-color:rgba(245,166,35,.3);background:rgba(245,166,35,.08)"><strong style="color:var(--gold)">On Waitlist</strong><span>You'll be added if a spot opens</span></div>`;
+  } else if(t.status==='registration') {
+    actions=`<button class="btn btn-primary btn-block" onclick="openRegistration()">Register</button>`;
+  }
+  if(isOrg) {
+    actions+=`<hr class="divider">`;
+    if(t.status==='registration') actions+=`<button class="btn btn-success btn-block mb-8" onclick="doStart()">▶ Start Tournament</button>`;
+    if(t.status==='ongoing')      actions+=`<button class="btn btn-outline btn-block mb-8" onclick="doNextRound()">Next Round →</button>`;
+  }
+  if(isJudge&&!isOrg&&t.status==='ongoing') {
+    actions+=`<hr class="divider"><button class="btn btn-outline btn-block btn-sm" onclick="setDetailTab(document.querySelector('[onclick*=judge]'),'judge')">Open Judge Panel</button>`;
+  }
+  const phaseBadges=(t.phases||[]).map((p,i)=>{
+    const pt=PHASE_TYPES[p.type]||{};
+    const mm2=MATCH_MODES[p.matchMode]||{};
+    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div style="width:26px;height:26px;border-radius:50%;background:var(--accent2);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0">${pt.icon||'📋'}</div>
+      <div style="flex:1"><div style="font-weight:600;font-size:13px">${p.name||pt.label}</div>
+      <div style="font-size:11px;color:var(--text3)">${mm2.icon||''} ${p.matchMode} · ${p.type==='swiss'||p.type==='round_robin'?p.rounds+' rounds':'Bracket'}</div></div>
+      ${i===t.currentPhase&&t.status==='ongoing'?'<span class="badge badge-green">Active</span>':''}
+    </div>`;
+  }).join('');
+  el.innerHTML=`<div class="detail-grid">
+    <div>
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+          ${statusBadge(t.status)}<span class="text-dim text-sm">${t.isOnline!==false?'🌐 Online':'🏢 Offline'}</span>
+        </div>
+        ${t.description?`<p style="color:var(--text2);margin-bottom:16px;line-height:1.6">${esc(t.description).replace(/\n/g,'<br>')}</p>`:''}
+        <div class="info-grid">
+          <div class="info-item"><label>Match Format</label><span>${mm.icon} ${phase0.matchMode||'Bo3'}</span></div>
+          <div class="info-item"><label>Phases</label><span>${(t.phases||[]).length}</span></div>
+          <div class="info-item"><label>Decks/Player</label><span>${t.minDecks===t.maxDecks?t.minDecks:t.minDecks+'–'+t.maxDecks}</span></div>
+          <div class="info-item"><label>Round</label><span>${t.currentRound?`R${t.currentRound} / Ph.${t.currentPhase+1}`:'—'}</span></div>
+          <div class="info-item"><label>Organizer</label><span>${esc(t.organizerName)}</span></div>
+          <div class="info-item"><label>Players</label><span>${(t.registrations||[]).length}${t.maxPlayers?'/'+t.maxPlayers:''}</span></div>
+        </div>
+        ${t.maxPlayers?`<div class="progress mt-8"><div class="progress-fill" style="width:${fill}%"></div></div>`:''}
+      </div>
+      <div class="card"><div class="card-title">📋 Structure</div>${phaseBadges}</div>
+      ${t.deckRules?`<div class="card"><div class="card-title">📜 Deck Rules</div><p style="color:var(--text2);line-height:1.6">${esc(t.deckRules).replace(/\n/g,'<br>')}</p></div>`:''}
+      ${t.prizePool?`<div class="card"><div class="card-title">🏆 Prize Pool</div><div style="color:var(--gold);font-weight:600;font-size:15px">${esc(t.prizePool)}</div></div>`:''}
+      ${t.discord?`<div class="card"><div class="card-title">🔗 Links</div><a href="${esc(t.discord)}" target="_blank" class="btn btn-outline btn-sm">💬 Discord</a></div>`:''}
+    </div>
+    <div><div class="card">${actions||'<div class="text-dim text-sm">This tournament has ended.</div>'}</div></div>
+  </div>`;
+}
+
+function renderPairingsTab(data,t,isJudge,el) {
+  if(!data.pairings?.length){el.innerHTML=empty('No pairings yet. Tournament has not started.');return;}
+  const reg=t.registrations||[];
+  const uname=id=>reg.find(r=>r.userId===id)?.username||'?';
+  const roundGroups={};
+  for(const p of data.pairings) (roundGroups[p.round]=roundGroups[p.round]||[]).push(...p.matches);
+  let html='';
+  for(const [rnd,matches] of Object.entries(roundGroups).sort((a,b)=>b[0]-a[0])) {
+    const isCur=parseInt(rnd)===t.currentRound;
+    html+=`<div style="margin-bottom:24px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:10px;display:flex;align-items:center;gap:8px">
+        Round ${rnd} ${isCur?'<span class="badge badge-green">Current</span>':''}
+      </div>`;
+    for(const m of matches) html+=renderMatchRow(m,t,uname,isJudge);
+    html+=`</div>`;
+  }
+  // dispute button for players
+  const myMatch=data.pairings.flatMap(p=>p.matches).find(m=>_me&&(m.p1===_me.id||m.p2===_me.id)&&!m.result&&t.currentRound>0);
+  if(myMatch&&_me&&!isJudge) html+=`<div style="text-align:center;margin-top:8px"><button class="btn btn-outline btn-sm" onclick="openDisputeModal('${myMatch.id}')">⚠ Submit Dispute for my match</button></div>`;
+  el.innerHTML=html||empty('No matches');
+}
+
+function renderMatchRow(m,t,uname,isJudge) {
+  if(!m.p2) return `<div class="match-row match-row-bo3"><span class="match-player">${esc(uname(m.p1))}</span><span class="match-bye">BYE</span><span></span><span></span></div>`;
+  const w=m.winner, p1w=w===m.p1, p2w=w===m.p2;
+  const canReport=_me&&!m.result&&t.status==='ongoing'&&(isJudge||_me.id===m.p1||_me.id===m.p2);
+  const canEdit=isJudge&&m.result;
+  let score='';
+  if(m.result==='tie') score=`<span class="badge badge-gray">Tie</span>`;
+  else if(m.result==='win') score=`<span class="match-score">${m.scoreWinner??''}-${m.scoreLoser??''}</span>`;
+  else score=`<span class="match-pending">—</span>`;
+  let acts='';
+  if(canReport) acts+=`<button class="btn btn-outline btn-sm" onclick="openResult('${m.id}','${m.p1}','${m.p2}','${esc(uname(m.p1))}','${esc(uname(m.p2))}')">Report</button>`;
+  if(canEdit)   acts+=`<button class="btn btn-ghost btn-sm" onclick="openResult('${m.id}','${m.p1}','${m.p2}','${esc(uname(m.p1))}','${esc(uname(m.p2))}',true)">Edit</button>`;
+  if(isJudge&&!m.result&&t.status==='ongoing') acts+=`<button class="btn btn-ghost btn-sm" onclick="openPenaltyModal('${m.p1}','${esc(uname(m.p1))}','${m.p2}','${esc(uname(m.p2))}')" title="Issue Penalty">⚖</button>`;
+  return `<div class="match-row match-row-bo3">
+    <span class="match-player ${p1w?'winner':p2w?'loser':''}">${p1w?'✓ ':''}${esc(uname(m.p1))}</span>
+    <span class="match-vs">vs</span>
+    <span class="match-player ${p2w?'winner':p1w?'loser':''}">${p2w?'✓ ':''}${esc(uname(m.p2))}</span>
+    <span class="match-actions">${score} ${acts}</span>
+  </div>`;
+}
+
+function renderStandingsTab(data,t,isJudge,el) {
+  if(!data?.length){el.innerHTML=empty('No standings yet');return;}
+  const rows=data.map((p,i)=>`<tr class="rank-${i+1}">
+    <td class="rank-num">${i+1}</td>
+    <td style="font-weight:500">${esc(p.username)}${p.dropped?` <span class="badge badge-red" style="font-size:10px">dropped</span>`:''}</td>
+    <td class="record-w">${p.wins}</td><td class="record-l">${p.losses}</td><td class="record-t">${p.ties}</td>
+    <td class="text-dim">${(p.owp*100).toFixed(1)}%</td>
+    <td class="font-mono text-sm">${p.wins}-${p.losses}${p.ties?'-'+p.ties:''}</td>
+  </tr>`).join('');
+  el.innerHTML=`<table class="tbl"><thead><tr><th>#</th><th>Player</th><th>W</th><th>L</th><th>T</th><th>OWP</th><th>Record</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderPlayersTab(data,t,isJudge,el) {
+  if(!data?.length){el.innerHTML=empty('No players registered');return;}
+  const active=data.filter(p=>!p.waitlist&&!p.dropped);
+  const waitlist=data.filter(p=>p.waitlist);
+  const dropped=data.filter(p=>p.dropped);
+  const sec=(title,list)=>{
+    if(!list.length) return '';
+    const rows=list.map((r,i)=>`<tr>
+      <td class="rank-num">${i+1}</td>
+      <td style="font-weight:500">${esc(r.username)}</td>
+      <td>${(r.decks||[]).map(d=>`<span class="badge badge-blue" style="cursor:pointer" onclick="viewDeck('${esc(d.name)}','${esc(d.list||'')}')">${esc(d.name)}</span>`).join(' ')}</td>
+      <td>${r.checkedIn?'<span class="badge badge-green">✓</span>':'<span class="badge badge-gray">—</span>'}</td>
+      ${isJudge?`<td><button class="btn btn-ghost btn-sm" onclick="orgDrop('${r.userId}')">Drop</button></td>`:'<td></td>'}
+    </tr>`).join('');
+    return `<div style="margin-bottom:20px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">${title} (${list.length})</div>
+      <table class="tbl"><thead><tr><th>#</th><th>Player</th><th>Decks</th><th>Check-in</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    </div>`;
+  };
+  el.innerHTML=sec('Players',active)+sec('Waitlist',waitlist)+sec('Dropped',dropped);
+}
+
+// ── Judge Panel ───────────────────────────────────────────────────────────────
+async function renderJudgePanel(t,el) {
+  el.innerHTML=loader();
+  const [penalties,disputes]=await Promise.all([
+    api('GET',`/api/tournaments/${_currentDetailId}/penalties`),
+    api('GET',`/api/tournaments/${_currentDetailId}/disputes`),
+  ]);
+  const isOrg=_me&&t.organizerId===_me.id;
+  const reg=t.registrations||[];
+  const active=reg.filter(r=>!r.waitlist&&!r.dropped);
+  const openDisputes=(disputes||[]).filter(d=>d.status==='open');
+  const pens=penalties||[];
+  let html=`<div class="judge-grid">
+    <div class="judge-stat"><div class="num">${active.length}</div><div class="lbl">Active Players</div></div>
+    <div class="judge-stat"><div class="num text-gold">${openDisputes.length}</div><div class="lbl">Open Disputes</div></div>
+    <div class="judge-stat"><div class="num text-accent">${pens.filter(p=>p.type==='dq').length}</div><div class="lbl">Disqualifications</div></div>
+    <div class="judge-stat"><div class="num">${pens.length}</div><div class="lbl">Total Penalties</div></div>
+  </div>`;
+
+  // Organizer: Add Judge
+  if(isOrg) {
+    const judgeNames=Object.values(t.judgeNames||{}).join(', ')||'None';
+    html+=`<div class="judge-section">
+      <div class="judge-section-title">Judges <span>${judgeNames}</span></div>
+      <div style="display:flex;gap:8px">
+        <input class="form-input" id="add-judge-input" placeholder="Username to add as judge" style="flex:1">
+        <button class="btn btn-outline" onclick="addJudge()">Add Judge</button>
+      </div>
+    </div>`;
+  }
+
+  // Issue Penalty
+  if(t.status==='ongoing') {
+    html+=`<div class="judge-section">
+      <div class="judge-section-title">Issue Penalty</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Player</label>
+          <select class="form-input" id="pen-player">
+            <option value="">Select player…</option>
+            ${active.map(r=>`<option value="${r.userId}">${esc(r.username)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Penalty Type</label>
+          <select class="form-input" id="pen-type">
+            ${PENALTY_TYPES.map(p=>`<option value="${p.value}">${p.label}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Reason</label>
+        <input class="form-input" id="pen-reason" placeholder="Describe the infraction…">
+      </div>
+      <button class="btn btn-danger" onclick="issuePenalty()">Issue Penalty</button>
+    </div>`;
+  }
+
+  // Open Disputes
+  if(openDisputes.length) {
+    html+=`<div class="judge-section">
+      <div class="judge-section-title">Open Disputes (${openDisputes.length})</div>
+      ${openDisputes.map(d=>`<div class="card card-sm dispute-open" style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <div>
+            <div style="font-weight:600;font-size:13px">${esc(d.submittedByName)}</div>
+            <div style="color:var(--text2);font-size:13px;margin-top:4px">${esc(d.description)}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">${fmtDate(d.submittedAt)}</div>
+          </div>
+          <button class="btn btn-success btn-sm" onclick="resolveDispute('${d.id}')">Resolve</button>
+        </div>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  // Penalty log
+  html+=`<div class="judge-section">
+    <div class="judge-section-title">Penalty Log (${pens.length})</div>
+    ${!pens.length?'<div class="text-dim text-sm">No penalties issued.</div>':
+    `<table class="tbl"><thead><tr><th>Player</th><th>Type</th><th>Reason</th><th>Round</th><th>Issued By</th></tr></thead>
+    <tbody>${pens.sort((a,b)=>b.issuedAt-a.issuedAt).map(p=>`<tr>
+      <td style="font-weight:500">${esc(p.playerName||'?')}</td>
+      <td><span class="penalty-badge penalty-${p.type}">${p.type.replace('_',' ')}</span></td>
+      <td class="text-muted">${esc(p.reason)}</td>
+      <td class="text-dim">R${p.round}</td>
+      <td class="text-dim">${esc(p.issuedByName)}</td>
+    </tr>`).join('')}</tbody></table>`}
+  </div>`;
+
+  // Resolved disputes
+  const resolved=(disputes||[]).filter(d=>d.status!=='open');
+  if(resolved.length) html+=`<div class="judge-section">
+    <div class="judge-section-title">Resolved Disputes (${resolved.length})</div>
+    ${resolved.map(d=>`<div class="card card-sm dispute-resolved" style="margin-bottom:6px">
+      <div style="font-weight:500;font-size:13px">${esc(d.submittedByName)}: ${esc(d.description)}</div>
+      <div style="font-size:12px;color:var(--green);margin-top:4px">✓ ${esc(d.resolution)} — ${esc(d.resolvedBy)}</div>
+    </div>`).join('')}
+  </div>`;
+
+  el.innerHTML=html;
+}
+
+async function addJudge() {
+  const username=_id('add-judge-input')?.value?.trim();
+  if(!username) return toast('Enter a username','error');
+  const r=await api('POST',`/api/tournaments/${_currentDetailId}/judges`,{username});
+  if(r.error) return toast(r.error,'error');
+  toast(`${r.username} added as judge`,'success');
+  _id('add-judge-input').value='';
+  _currentTournament=await api('GET',`/api/tournaments/${_currentDetailId}`);
+  renderDetailContent();
+}
+
+async function issuePenalty() {
+  const playerId=_id('pen-player')?.value;
+  const type=_id('pen-type')?.value;
+  const reason=_id('pen-reason')?.value?.trim();
+  if(!playerId) return toast('Select a player','error');
+  const r=await api('POST',`/api/tournaments/${_currentDetailId}/penalties`,{playerId,type,reason});
+  if(r.error) return toast(r.error,'error');
+  toast(`Penalty issued: ${type.replace('_',' ')}`,'success');
+  _id('pen-reason').value='';
+  _currentTournament=await api('GET',`/api/tournaments/${_currentDetailId}`);
+  renderDetailContent();
+}
+
+async function resolveDispute(disputeId) {
+  const resolution=prompt('Resolution / ruling:');
+  if(!resolution) return;
+  const r=await api('PATCH',`/api/tournaments/${_currentDetailId}/disputes/${disputeId}`,{resolution,status:'resolved'});
+  if(r.error) return toast(r.error,'error');
+  toast('Dispute resolved','success');
+  renderDetailContent();
+}
+
+function openPenaltyModal(p1id,p1name,p2id,p2name) {
+  _id('penalty-content').innerHTML=`
+    <div class="form-group"><label>Player</label>
+      <select class="form-input" id="pm-player">
+        <option value="${p1id}">${p1name}</option>
+        <option value="${p2id}">${p2name}</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Penalty Type</label>
+      <select class="form-input" id="pm-type">
+        ${PENALTY_TYPES.map(p=>`<option value="${p.value}">${p.label}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group"><label>Reason</label><input class="form-input" id="pm-reason" placeholder="Describe the infraction…"></div>
+    <button class="btn btn-danger btn-block" onclick="submitPenaltyModal()">Issue Penalty</button>`;
+  openModal('modal-penalty');
+}
+
+async function submitPenaltyModal() {
+  const playerId=_id('pm-player')?.value;
+  const type=_id('pm-type')?.value;
+  const reason=_id('pm-reason')?.value?.trim();
+  const r=await api('POST',`/api/tournaments/${_currentDetailId}/penalties`,{playerId,type,reason});
+  if(r.error) return toast(r.error,'error');
+  closeModal('modal-penalty');
+  toast(`Penalty: ${type.replace('_',' ')}`,'success');
+  _currentTournament=await api('GET',`/api/tournaments/${_currentDetailId}`);
+  renderDetailContent();
+}
+
+function openDisputeModal(matchId) {
+  _id('dispute-content').innerHTML=`
+    <p class="text-muted text-sm mb-16">Describe the issue with your current match. A judge will review it.</p>
+    <div class="form-group"><label>Description</label><textarea class="form-input" id="disp-desc" placeholder="What happened?"></textarea></div>
+    <button class="btn btn-primary btn-block" onclick="submitDispute('${matchId}')">Submit Dispute</button>`;
+  openModal('modal-dispute');
+}
+
+async function submitDispute(matchId) {
+  const desc=_id('disp-desc')?.value?.trim();
+  if(!desc) return toast('Please describe the issue','error');
+  const r=await api('POST',`/api/tournaments/${_currentDetailId}/disputes`,{matchId,description:desc});
+  if(r.error) return toast(r.error,'error');
+  closeModal('modal-dispute');
+  toast('Dispute submitted — a judge will review it','info');
+}
+
+// ── Organizer Actions ─────────────────────────────────────────────────────────
+async function doStart() {
+  if(!confirm('Start the tournament? Registration will close.')) return;
+  const r=await api('POST',`/api/tournaments/${_currentDetailId}/start`);
+  if(r.error) return toast(r.error,'error');
+  toast('Tournament started! Round 1 pairings generated.','success');
+  _currentTournament=r; renderDetailContent();
+}
+async function doNextRound() {
+  if(!confirm('Advance to the next round?')) return;
+  const r=await api('POST',`/api/tournaments/${_currentDetailId}/next-round`);
+  if(r.error) return toast(r.error,'error');
+  if(r.status==='completed') toast('Tournament completed!','success');
+  else if(r.phaseAdvanced) toast(`Phase advanced: ${r.newPhase}!`,'success');
+  else toast(`Round ${r.tournament.currentRound} started!`,'success');
+  _currentTournament=r.tournament||r; renderDetailContent();
+}
+async function doCheckin() {
+  const r=await api('POST',`/api/tournaments/${_currentDetailId}/checkin`);
+  if(r.error) return toast(r.error,'error');
+  _myReg.checkedIn=true; toast('Checked in!','success'); renderDetailContent();
+}
+async function doDrop() {
+  if(!confirm('Drop from this tournament?')) return;
+  const r=await api('DELETE',`/api/tournaments/${_currentDetailId}/register`);
+  if(r.error) return toast(r.error,'error');
+  _myReg=null; toast('You have dropped.','info'); renderDetailContent();
+}
+async function orgDrop(userId) {
+  if(!confirm('Drop this player?')) return;
+  const r=await api('POST',`/api/tournaments/${_currentDetailId}/drop/${userId}`);
+  if(r.error) return toast(r.error,'error');
+  toast('Player dropped.','info'); renderDetailContent();
+}
+
+// ── Registration ──────────────────────────────────────────────────────────────
+function openRegistration() {
+  if(!_token) return openModal('modal-login');
+  _tregTournament=_currentTournament;
+  _tregDecks=Array.from({length:_tregTournament.minDecks},()=>({name:'',list:''}));
+  renderTregModal(); openModal('modal-treg');
+}
+function renderTregModal() {
+  const t=_tregTournament; const minD=t.minDecks||1,maxD=t.maxDecks||1;
+  const mm=MATCH_MODES[t.phases?.[0]?.matchMode];
+  let html='';
+  if(mm) html+=`<div class="mode-info mb-16"><strong>${mm.icon} ${mm.label}</strong>${mm.desc}</div>`;
+  html+=`<p style="color:var(--text2);font-size:13px;margin-bottom:16px">Submit ${minD===maxD?minD:minD+'–'+maxD} deck(s).${t.deckRules?` <strong>Rules:</strong> ${esc(t.deckRules)}`:''}`;
+  if(t.entryType==='code') html+=`<div class="form-group"><label>Entry Code</label><input class="form-input" id="treg-code" placeholder="Enter code"></div>`;
+  _tregDecks.forEach((d,i)=>{
+    html+=`<div class="deck-slot">
+      <div class="deck-slot-hdr"><span class="deck-slot-title">Deck ${i+1}${i<minD?' <span style="color:var(--accent);font-size:10px">required</span>':''}</span>
+      ${i>=minD?`<button class="deck-remove-btn" onclick="tregRemoveDeck(${i})">×</button>`:''}</div>
+      <div class="form-group" style="margin-bottom:8px"><label>Name</label>
+        <input class="form-input" placeholder="e.g. Charizard ex" value="${esc(d.name)}" id="treg-name-${i}"></div>
+      <div class="form-group" style="margin-bottom:0"><label>Decklist</label>
+        <textarea class="form-input" style="min-height:80px;font-size:12px;font-family:monospace" id="treg-list-${i}">${esc(d.list)}</textarea></div>
+    </div>`;
+  });
+  if(_tregDecks.length<maxD) html+=`<button class="add-deck-btn" onclick="tregAddDeck()">+ Add Deck ${_tregDecks.length+1}</button>`;
+  html+=`<button class="btn btn-primary btn-block" onclick="submitRegistration()">Register (${_tregDecks.length} deck${_tregDecks.length>1?'s':''})</button>`;
+  _id('treg-content').innerHTML=html;
+}
+function tregSave(){_tregDecks.forEach((d,i)=>{d.name=_id(`treg-name-${i}`)?.value||d.name;d.list=_id(`treg-list-${i}`)?.value||d.list;});}
+function tregAddDeck(){tregSave();_tregDecks.push({name:'',list:''});renderTregModal();}
+function tregRemoveDeck(i){tregSave();_tregDecks.splice(i,1);renderTregModal();}
+async function submitRegistration() {
+  tregSave();
+  const t=_tregTournament;
+  if(_tregDecks.length<(t.minDecks||1)) return toast(`Need at least ${t.minDecks} deck(s)`,'error');
+  for(const[i,d]of _tregDecks.entries()) if(!d.name.trim()) return toast(`Deck ${i+1} needs a name`,'error');
+  const body={decks:_tregDecks};
+  if(t.entryType==='code') body.entryCode=_id('treg-code')?.value;
+  const r=await api('POST',`/api/tournaments/${_currentDetailId}/register`,body);
+  if(r.error) return toast(r.error,'error');
+  closeModal('modal-treg');
+  toast(r.waitlist?'Added to waitlist!':'Registered successfully!',r.waitlist?'warn':'success');
+  _myReg=await api('GET',`/api/tournaments/${_currentDetailId}/my-registration`);
+  renderDetailContent();
+}
+
+// ── Result Reporting ──────────────────────────────────────────────────────────
+function openResult(matchId,p1id,p2id,p1name,p2name,editing=false) {
+  _resultMatch={id:matchId,p1:p1id,p2:p2id,p1name,p2name};
+  const mode=_currentTournament?.phases?.[_currentTournament.currentPhase]?.matchMode||'Bo3';
+  const mm=MATCH_MODES[mode];
+  let html=`<div class="mode-info mb-16"><strong>${mm?.icon} ${mm?.label}</strong>${mm?.desc}</div>
+    <div class="form-group"><label>Winner</label>
+      <select class="form-input" id="res-winner">
+        <option value="${p1id}">${p1name}</option>
+        <option value="${p2id}">${p2name}</option>
+      </select>
+    </div>`;
+  if(mode!=='Bo1') html+=`<div class="form-row">
+    <div class="form-group"><label>Winner's games</label><input class="form-input" type="number" id="res-sw" min="0" max="5" value="${mode==='Bo5'?3:2}"></div>
+    <div class="form-group"><label>Loser's games</label><input class="form-input" type="number" id="res-sl" min="0" max="4" value="0"></div>
+  </div>
+  <button class="btn btn-outline btn-sm mb-16" onclick="submitTie()">Declare Tie</button>`;
+  html+=`<button class="btn btn-primary btn-block" onclick="submitResult()">Confirm Result</button>`;
+  _id('result-content').innerHTML=html;
+  openModal('modal-result');
+}
+async function submitResult() {
+  const m=_resultMatch;
+  const winner=_id('res-winner')?.value||m.p1;
+  const sw=parseInt(_id('res-sw')?.value??2);
+  const sl=parseInt(_id('res-sl')?.value??0);
+  const r=await api('POST',`/api/tournaments/${_currentDetailId}/result`,{matchId:m.id,winner,scoreWinner:sw,scoreLoser:sl});
+  if(r.error) return toast(r.error,'error');
+  closeModal('modal-result'); toast('Result submitted!','success'); renderDetailContent();
+}
+async function submitTie() {
+  const r=await api('POST',`/api/tournaments/${_currentDetailId}/result`,{matchId:_resultMatch.id,isTie:true});
+  if(r.error) return toast(r.error,'error');
+  closeModal('modal-result'); toast('Tie recorded.','info'); renderDetailContent();
+}
+
+// ── View Decks ────────────────────────────────────────────────────────────────
+function openMyDecks() {
+  if(!_myReg) return;
+  _id('decks-content').innerHTML=(_myReg.decks||[]).map((d,i)=>`
+    <div style="margin-bottom:16px">
+      <div style="font-weight:600;color:var(--teal);margin-bottom:6px">Deck ${i+1}: ${esc(d.name)}</div>
+      <div class="deck-list-preview">${esc(d.list)||'(no list provided)'}</div>
+    </div>`).join('')||'<div class="text-dim">No decks.</div>';
+  openModal('modal-decks');
+}
+function viewDeck(name,list) {
+  _id('decks-content').innerHTML=`<div style="font-weight:600;color:var(--teal);margin-bottom:8px">${esc(name)}</div><div class="deck-list-preview">${esc(list)||'(no list)'}</div>`;
+  openModal('modal-decks');
+}
+
+// ── Create Wizard ─────────────────────────────────────────────────────────────
+function initWizard() {
+  _wizardStep=1;
+  if(!_phases.length) {
+    _phases=[
+      {name:'Swiss',type:'swiss',matchMode:'Bo3',rounds:5,cutValue:8},
+      {name:'Top 8',type:'single_elim',matchMode:'Bo3',rounds:3,cutValue:8},
+    ];
+  }
+  updateWizardUI();
+}
+function wizardNext(step) {
+  if(step===2&&!_v('c-name')) return toast('Tournament name is required','error');
+  _wizardStep=step;
+  updateWizardUI();
+  if(step===2) renderPhases();
+}
+function updateWizardUI() {
+  [1,2,3].forEach(i=>{
+    _id(`create-step-${i}`).style.display=i===_wizardStep?'':'none';
+    const ws=_id(`ws${i}`);
+    ws.classList.toggle('active',i===_wizardStep);
+    ws.classList.toggle('done',i<_wizardStep);
+  });
+}
+function renderPhases() {
+  _id('phases-container').innerHTML=_phases.map((p,i)=>renderPhaseCard(p,i)).join('');
+}
+function renderPhaseCard(p,i) {
+  const phaseOpts=Object.entries(PHASE_TYPES).map(([k,v])=>`<option value="${k}" ${p.type===k?'selected':''}>${v.icon} ${v.label}</option>`).join('');
+  const modeOpts=Object.entries(MATCH_MODES).map(([k,v])=>`<option value="${k}" ${p.matchMode===k?'selected':''}>${v.icon} ${v.label}</option>`).join('');
+  const showRounds=p.type==='swiss'||p.type==='round_robin';
+  const showCut=i>0;
+  return `<div class="phase-card" id="phase-card-${i}">
+    ${_phases.length>1?`<button class="phase-remove" onclick="removePhase(${i})">×</button>`:''}
+    <div class="phase-header">
+      <div class="phase-num">${i+1}</div>
+      <input class="phase-title-input" placeholder="Phase name (optional)" value="${esc(p.name||'')}" oninput="_phases[${i}].name=this.value">
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Type</label>
+        <select class="form-input" onchange="_phases[${i}].type=this.value;renderPhases()">${phaseOpts}</select></div>
+      <div class="form-group"><label>Match Mode</label>
+        <select class="form-input" onchange="_phases[${i}].matchMode=this.value;renderPhases()">${modeOpts}</select></div>
+    </div>
+    ${showRounds?`<div class="form-row">
+      <div class="form-group"><label>Rounds</label><input class="form-input" type="number" min="1" max="20" value="${p.rounds||5}" oninput="_phases[${i}].rounds=+this.value"></div>
+      ${showCut?`<div class="form-group"><label>Top N advance from previous</label><input class="form-input" type="number" min="2" max="256" value="${p.cutValue||8}" oninput="_phases[${i}].cutValue=+this.value"></div>`:'<div></div>'}
+    </div>`:(showCut?`<div class="form-group"><label>Top N advance from previous phase</label><input class="form-input" type="number" min="2" max="256" value="${p.cutValue||8}" oninput="_phases[${i}].cutValue=+this.value"></div>`:'')}
+    <div class="mode-info">${MATCH_MODES[p.matchMode]?.icon||''} <strong>${MATCH_MODES[p.matchMode]?.label||''}</strong> — ${MATCH_MODES[p.matchMode]?.desc||''}</div>
+  </div>`;
+}
+function addPhase(){_phases.push({name:'',type:'single_elim',matchMode:'Bo3',rounds:3,cutValue:8});renderPhases();}
+function removePhase(i){if(_phases.length<=1)return;_phases.splice(i,1);renderPhases();}
+
+async function submitCreate() {
+  if(!_token) return openModal('modal-login');
+  const name=_v('c-name');
+  if(!name) return toast('Tournament name required','error');
+  const minD=parseInt(_v('c-mindecks'))||1, maxD=parseInt(_v('c-maxdecks'))||1;
+  if(minD>maxD) return toast('Min decks cannot exceed max decks','error');
+  const body={
+    name, description:_v('c-desc'), prizePool:_v('c-prize'), discord:_v('c-discord'),
+    maxPlayers:parseInt(_v('c-maxplayers'))||0, checkinRequired:_id('c-checkin').checked,
+    minDecks:minD, maxDecks:maxD, deckVisibility:_v('c-deckvis'), deckRules:_v('c-deckrules'),
+    entryType:_v('c-entrytype'),
+    entryCodes:_v('c-codes')?.split('\n').map(s=>s.trim()).filter(Boolean)||[],
+    inviteList:_v('c-invites')?.split('\n').map(s=>s.trim()).filter(Boolean)||[],
+    phases:_phases,
+  };
+  const r=await api('POST','/api/tournaments',body);
+  if(r.error) return toast(r.error,'error');
+  toast('Tournament created!','success');
+  _phases=[];
+  openTournament(r.id);
+}
+
+// ── My Page ───────────────────────────────────────────────────────────────────
+async function loadMyPage() {
+  const el=_id('my-content');
+  if(!_token){el.innerHTML=`<div class="empty"><div class="empty-icon">🔒</div>Log in to see your tournaments</div>`;return;}
+  el.innerHTML=loader();
+  const url=_myTab==='organized'?'/api/my/tournaments':_myTab==='registered'?'/api/my/registrations':'/api/my/judging';
+  const data=await api('GET',url);
+  if(!data?.length){
+    el.innerHTML=_myTab==='organized'
+      ?`<div class="empty"><div class="empty-icon">🏆</div>No tournaments organized yet.<br><br><button class="btn btn-primary" onclick="showPage('create')">Create one</button></div>`
+      :_myTab==='judging'?`<div class="empty"><div class="empty-icon">⚖</div>You are not assigned as a judge in any tournament.</div>`
+      :`<div class="empty"><div class="empty-icon">🎴</div>Not registered in any tournament.</div>`;
+    return;
+  }
+  const rows=data.map(t=>`<tr>
+    <td><span class="t-link" onclick="openTournament('${t.id}')">${esc(t.name)}</span></td>
+    <td>${statusBadge(t.status)}</td>
+    <td class="text-muted">${t.playerCount}</td>
+  </tr>`).join('');
+  el.innerHTML=`<table class="tbl"><thead><tr><th>Tournament</th><th>Status</th><th>Players</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+// ── Modals ────────────────────────────────────────────────────────────────────
+function openModal(id){_id(id).style.display='flex';}
+function closeModal(id){_id(id).style.display='none';}
+function closeModalOut(e,id){if(e.target.id===id)closeModal(id);}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function toast(msg,type='info'){
+  const el=document.createElement('div');
+  el.className=`toast ${type}`; el.textContent=msg;
+  _id('toasts').appendChild(el);
+  setTimeout(()=>el.remove(),3800);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const _id=id=>document.getElementById(id);
+const _v=id=>_id(id)?.value?.trim()||'';
+const esc=s=>!s?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const loader=()=>`<div class="loader-wrap"><div class="pokeball"></div><span>Loading…</span></div>`;
+const empty=msg=>`<div class="empty"><div class="empty-icon">📋</div>${msg}</div>`;
+const fmtDate=ts=>!ts?'':new Date(ts).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+function statusBadge(s){
+  return s==='ongoing'?'<span class="badge badge-green">● Live</span>'
+        :s==='registration'?'<span class="badge badge-yellow">Open</span>'
+        :'<span class="badge badge-gray">Completed</span>';
+}
+function onEntryTypeChange(val){
+  _id('codes-group').style.display=val==='code'?'':'none';
+  _id('invites-group').style.display=val==='invite'?'':'none';
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+refreshAuthUI();
+loadTournamentList();

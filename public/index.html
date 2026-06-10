@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PocketTCG — Tournament Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="accent-strip"></div>
+<nav>
+  <div class="nav-inner">
+    <div class="logo" onclick="showPage('home')" style="cursor:pointer">
+      <div class="logo-mark">⚡</div>
+      <div class="logo-text">Pocket<span class="logo-pocket">TCG</span></div>
+    </div>
+    <div class="nav-tabs">
+      <div class="nav-tab active" data-page="home" onclick="showPage('home')">Tournaments</div>
+      <div class="nav-tab" data-page="create" id="tab-create" style="display:none" onclick="showPage('create')">Organize</div>
+      <div class="nav-tab" data-page="my" id="tab-my" style="display:none" onclick="showPage('my')">My Events</div>
+    </div>
+    <div class="nav-right" id="auth-out">
+      <button class="btn btn-ghost" onclick="openModal('modal-login')">Log in</button>
+      <button class="btn btn-primary" onclick="openModal('modal-register')">Sign up</button>
+    </div>
+    <div class="nav-right" id="auth-in" style="display:none">
+      <span style="font-size:13px;color:var(--text2)" id="nav-username"></span>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Log out</button>
+    </div>
+  </div>
+</nav>
+<div class="toast-wrap" id="toasts"></div>
+
+<!-- HOME -->
+<div id="page-home" class="page active">
+  <div class="page-hdr">
+    <div class="page-hdr-inner">
+      <h1>Pokémon TCG Pocket</h1>
+      <div class="sub-tabs">
+        <div class="sub-tab active" onclick="setSubTab(this,'all')">All</div>
+        <div class="sub-tab" onclick="setSubTab(this,'ongoing')">Live</div>
+        <div class="sub-tab" onclick="setSubTab(this,'registration')">Registration Open</div>
+        <div class="sub-tab" onclick="setSubTab(this,'completed')">Completed</div>
+      </div>
+    </div>
+  </div>
+  <div class="container"><div id="tournament-list"></div></div>
+</div>
+
+<!-- TOURNAMENT DETAIL -->
+<div id="page-tournament" class="page">
+  <div class="page-hdr">
+    <div class="page-hdr-inner">
+      <div style="margin-bottom:8px"><span style="color:var(--text3);font-size:13px;cursor:pointer" onclick="showPage('home')">← Tournaments</span></div>
+      <h1 id="detail-title">Tournament</h1>
+      <div class="sub-tabs">
+        <div class="sub-tab active" onclick="setDetailTab(this,'details')">Details</div>
+        <div class="sub-tab" onclick="setDetailTab(this,'pairings')">Pairings</div>
+        <div class="sub-tab" onclick="setDetailTab(this,'standings')">Standings</div>
+        <div class="sub-tab" onclick="setDetailTab(this,'players')">Players</div>
+        <div class="sub-tab" id="judge-tab" style="display:none" onclick="setDetailTab(this,'judge')">⚖ Judge Panel</div>
+      </div>
+    </div>
+  </div>
+  <div class="container"><div id="tournament-content"></div></div>
+</div>
+
+<!-- CREATE — 3-step wizard -->
+<div id="page-create" class="page">
+  <div class="page-hdr">
+    <div class="page-hdr-inner">
+      <h1>Create Tournament</h1>
+    </div>
+  </div>
+  <div class="container-sm">
+    <!-- Step indicator -->
+    <div class="wizard-steps" id="wizard-steps">
+      <div class="wstep active" id="ws1"><div class="wstep-num">1</div><span>Basic Info</span></div>
+      <div class="wstep-line"></div>
+      <div class="wstep" id="ws2"><div class="wstep-num">2</div><span>Format</span></div>
+      <div class="wstep-line"></div>
+      <div class="wstep" id="ws3"><div class="wstep-num">3</div><span>Decks & Access</span></div>
+    </div>
+
+    <!-- Step 1: Basic Info -->
+    <div id="create-step-1" class="wizard-panel">
+      <div class="card">
+        <div class="card-title">Tournament Details</div>
+        <div class="form-group">
+          <label>Tournament Name *</label>
+          <input class="form-input" id="c-name" placeholder="e.g. Paradox Drive Weekly #1">
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea class="form-input" id="c-desc" placeholder="Rules, schedule, how to join…"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Prize Pool</label>
+          <input class="form-input" id="c-prize" placeholder="e.g. Full Art Professor Oak + $20">
+        </div>
+        <div class="form-group">
+          <label>Discord Link (optional)</label>
+          <input class="form-input" id="c-discord" placeholder="https://discord.gg/…">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Max Players <span style="color:var(--text3)">(0 = unlimited)</span></label>
+            <input class="form-input" type="number" id="c-maxplayers" value="0" min="0">
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:1px">
+            <div style="width:100%">
+              <label>Check-in Required</label>
+              <label class="toggle" style="display:flex;align-items:center;gap:10px;margin-top:8px">
+                <input type="checkbox" id="c-checkin">
+                <span class="toggle-slider" style="position:relative;display:inline-block;width:38px;height:22px;flex-shrink:0"></span>
+                <span style="font-size:13px;color:var(--text2)">Players must confirm attendance</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end">
+        <button class="btn btn-primary" onclick="wizardNext(2)">Next: Format →</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Format -->
+    <div id="create-step-2" class="wizard-panel" style="display:none">
+      <div class="card">
+        <div class="card-title">Tournament Structure</div>
+        <p style="color:var(--text2);font-size:13px;margin-bottom:20px;line-height:1.6">
+          Define the phases. Most tournaments use <strong>Swiss</strong> rounds followed by a <strong>Top Cut</strong> elimination bracket.
+        </p>
+        <div id="phases-container"></div>
+        <button class="add-phase-btn" onclick="addPhase()">+ Add Phase</button>
+      </div>
+      <div style="display:flex;justify-content:space-between">
+        <button class="btn btn-outline" onclick="wizardNext(1)">← Back</button>
+        <button class="btn btn-primary" onclick="wizardNext(3)">Next: Decks & Access →</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Decks & Access -->
+    <div id="create-step-3" class="wizard-panel" style="display:none">
+      <div class="card">
+        <div class="card-title">Deck Settings</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Min Decks per Player</label>
+            <input class="form-input" type="number" id="c-mindecks" value="1" min="1" max="5">
+          </div>
+          <div class="form-group">
+            <label>Max Decks per Player</label>
+            <input class="form-input" type="number" id="c-maxdecks" value="2" min="1" max="5">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Decklist Visibility</label>
+          <select class="form-input" id="c-deckvis">
+            <option value="open">Open — visible to everyone</option>
+            <option value="closed">Closed — judges only</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Deck Rules <span style="color:var(--text3)">(optional)</span></label>
+          <textarea class="form-input" id="c-deckrules" placeholder="e.g. No duplicate main Pokémon across both decks."></textarea>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Access Control</div>
+        <div class="form-group">
+          <label>Registration Type</label>
+          <select class="form-input" id="c-entrytype" onchange="onEntryTypeChange(this.value)">
+            <option value="open">Open — anyone can register</option>
+            <option value="code">Entry Code — single shared code</option>
+            <option value="invite">Invite Only — specified usernames</option>
+          </select>
+        </div>
+        <div id="codes-group" style="display:none">
+          <div class="form-group">
+            <label>Entry Code</label>
+            <input class="form-input" id="c-codes" placeholder="e.g. PARADOX2026">
+          </div>
+        </div>
+        <div id="invites-group" style="display:none">
+          <div class="form-group">
+            <label>Invited Players (one username per line)</label>
+            <textarea class="form-input" id="c-invites" placeholder="username1&#10;username2"></textarea>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;gap:12px">
+        <button class="btn btn-outline" onclick="wizardNext(2)">← Back</button>
+        <button class="btn btn-primary btn-lg" style="flex:1" onclick="submitCreate()">🚀 Create Tournament</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MY EVENTS -->
+<div id="page-my" class="page">
+  <div class="page-hdr">
+    <div class="page-hdr-inner">
+      <h1>My Events</h1>
+      <div class="sub-tabs">
+        <div class="sub-tab active" onclick="setMyTab(this,'organized')">Organized</div>
+        <div class="sub-tab" onclick="setMyTab(this,'registered')">Registered</div>
+        <div class="sub-tab" onclick="setMyTab(this,'judging')">Judging</div>
+      </div>
+    </div>
+  </div>
+  <div class="container"><div id="my-content"></div></div>
+</div>
+
+<!-- MODALS -->
+<div class="modal-overlay" id="modal-login" style="display:none" onclick="closeModalOut(event,'modal-login')">
+  <div class="modal">
+    <div class="modal-hdr"><div class="modal-title">Log in</div><button class="modal-close" onclick="closeModal('modal-login')">×</button></div>
+    <div class="form-group"><label>Username</label><input class="form-input" id="login-user" autocomplete="username"></div>
+    <div class="form-group"><label>Password</label><input class="form-input" type="password" id="login-pass" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <button class="btn btn-primary btn-block" onclick="doLogin()">Log in</button>
+    <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--text2)">No account? <span style="color:var(--accent);cursor:pointer" onclick="closeModal('modal-login');openModal('modal-register')">Sign up</span></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-register" style="display:none" onclick="closeModalOut(event,'modal-register')">
+  <div class="modal">
+    <div class="modal-hdr"><div class="modal-title">Create account</div><button class="modal-close" onclick="closeModal('modal-register')">×</button></div>
+    <div class="form-group"><label>Username *</label><input class="form-input" id="reg-user" autocomplete="username"></div>
+    <div class="form-group"><label>Email (optional)</label><input class="form-input" type="email" id="reg-email"></div>
+    <div class="form-group"><label>Password *</label><input class="form-input" type="password" id="reg-pass" onkeydown="if(event.key==='Enter')doRegister()"></div>
+    <button class="btn btn-primary btn-block" onclick="doRegister()">Create account</button>
+    <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--text2)">Have an account? <span style="color:var(--accent);cursor:pointer" onclick="closeModal('modal-register');openModal('modal-login')">Log in</span></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-treg" style="display:none" onclick="closeModalOut(event,'modal-treg')">
+  <div class="modal modal-lg">
+    <div class="modal-hdr"><div class="modal-title">Register for Tournament</div><button class="modal-close" onclick="closeModal('modal-treg')">×</button></div>
+    <div id="treg-content"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-result" style="display:none" onclick="closeModalOut(event,'modal-result')">
+  <div class="modal">
+    <div class="modal-hdr"><div class="modal-title">Report Result</div><button class="modal-close" onclick="closeModal('modal-result')">×</button></div>
+    <div id="result-content"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-decks" style="display:none" onclick="closeModalOut(event,'modal-decks')">
+  <div class="modal modal-lg">
+    <div class="modal-hdr"><div class="modal-title">Decklists</div><button class="modal-close" onclick="closeModal('modal-decks')">×</button></div>
+    <div id="decks-content"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-penalty" style="display:none" onclick="closeModalOut(event,'modal-penalty')">
+  <div class="modal">
+    <div class="modal-hdr"><div class="modal-title">Issue Penalty</div><button class="modal-close" onclick="closeModal('modal-penalty')">×</button></div>
+    <div id="penalty-content"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-dispute" style="display:none" onclick="closeModalOut(event,'modal-dispute')">
+  <div class="modal">
+    <div class="modal-hdr"><div class="modal-title">Submit Dispute</div><button class="modal-close" onclick="closeModal('modal-dispute')">×</button></div>
+    <div id="dispute-content"></div>
+  </div>
+</div>
+
+<footer>
+  <div class="footer-inner">
+    <div class="footer-col"><h4>PocketTCG</h4><p>Tournament Platform</p><p>Pokémon TCG Pocket</p></div>
+    <div class="footer-col"><h4>Formats</h4><p>Swiss + Elimination</p><p>Conquest / Last Hero</p><p>Bring 2 Ban 1</p></div>
+    <div class="footer-col"><h4>Features</h4><p>Multi-deck submission</p><p>OWP tiebreaker</p><p>Judge panel & penalties</p></div>
+  </div>
+  <div class="footer-bottom"><span>PocketTCG © 2026 — Fan-made. Not affiliated with The Pokémon Company.</span></div>
+</footer>
+<script src="/js/app.js"></script>
+</body>
+</html>

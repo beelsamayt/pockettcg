@@ -201,6 +201,7 @@ function renderDetailsTab(t,isOrg,isJudge,el) {
     actions+=`<hr class="divider">`;
     if(t.status==='registration') actions+=`<button class="btn btn-success btn-block mb-8" onclick="doStart()">▶ Start Tournament</button>`;
     if(t.status==='ongoing')      actions+=`<button class="btn btn-outline btn-block mb-8" onclick="doNextRound()">Next Round →</button>`;
+    if(t.status==='registration') actions+=`<button class="btn btn-danger btn-block btn-sm" onclick="doDeleteTournament()">🗑 Delete Tournament</button>`;
   }
   if(isJudge&&!isOrg&&t.status==='ongoing') {
     actions+=`<hr class="divider"><button class="btn btn-outline btn-block btn-sm" onclick="setDetailTab(document.querySelector('[onclick*=judge]'),'judge')">Open Judge Panel</button>`;
@@ -527,6 +528,13 @@ async function doDrop() {
   const r=await api('DELETE',`/api/tournaments/${_currentDetailId}/register`);
   if(r.error) return toast(r.error,'error');
   _myReg=null; toast('You have dropped.','info'); renderDetailContent();
+}
+async function doDeleteTournament() {
+  if(!confirm('Delete this tournament permanently? This cannot be undone.')) return;
+  const r=await api('DELETE',`/api/tournaments/${_currentDetailId}`);
+  if(r.error) return toast(r.error,'error');
+  toast('Tournament deleted.','info');
+  showPage('home');
 }
 async function orgDrop(userId) {
   if(!confirm('Drop this player?')) return;

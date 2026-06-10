@@ -246,20 +246,73 @@ function renderPairingsTab(data,t,isJudge,el) {
   if(!data.pairings?.length){el.innerHTML=empty('No pairings yet. Tournament has not started.');return;}
   const reg=t.registrations||[];
   const uname=id=>reg.find(r=>r.userId===id)?.username||'?';
-  const roundGroups={};
-  for(const p of data.pairings) (roundGroups[p.round]=roundGroups[p.round]||[]).push(...p.matches);
-  let html='';
-  for(const [rnd,matches] of Object.entries(roundGroups).sort((a,b)=>b[0]-a[0])) {
-    const isCur=parseInt(rnd)===t.currentRound;
-    html+=`<div style="margin-bottom:24px">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:10px;display:flex;align-items:center;gap:8px">
-        Round ${rnd} ${isCur?'<span class="badge badge-green">Current</span>':''}
-      </div>`;
-    for(const m of matches) html+=renderMatchRow(m,t,uname,isJudge);
-    html+=`</div>`;
+
+  // Phase pills if multiple phases
+  const phases=data.phases||[];
+  let phasePills='';
+  if(phases.length>1) {
+    phasePills=`<div class="phase-tabs" style="margin-bottom:16px">${phases.map((p,i)=>`
+      <div class="phase-pill ${i===_detailPhaseIdx?'active':''}" onclick="setDetailPhase(${i},this)">
+        ${p.name||'Phase '+(i+1)}
+      </div>`).join('')}</div>`;
   }
-  // dispute button for players
-  const myMatch=data.pairings.flatMap(p=>p.matches).find(m=>_me&&(m.p1===_me.id||m.p2===_me.id)&&!m.result&&t.currentRound>0);
+
+  // Filter pairings by current phase
+  const phasePairings=data.pairings.filter(p=>p.phaseIdx===_detailPhaseIdx);
+  const phase=phases[_detailPhaseIdx]||{};
+  const isElim=phase.type==='single_elim'||phase.type==='double_elim';
+
+  let html=phasePills;
+
+  if(isElim && phasePairings.length) {
+    // ── BRACKET VIEW ─────────────────────────────────────────
+    html+=`<div class="bracket-wrap"><div class="bracket">`;
+    const roundGroups={};
+    for(const p of phasePairings) (roundGroups[p.round]=roundGroups[p.round]||[]).push(...p.matches);
+    const rounds=Object.entries(roundGroups).sort((a,b)=>+a[0]-+b[0]);
+
+    for(const [rnd,matches] of rounds) {
+      const isCur=parseInt(rnd)===t.currentRound&&_detailPhaseIdx===t.currentPhase;
+      const rndLabel=rounds.length===1?'Final':rounds.length===2&&rnd==='1'?'Semi-Finals':rounds.length===3&&rnd==='1'?'Quarter-Finals':`Round ${rnd}`;
+      html+=`<div class="bracket-round">
+        <div class="bracket-round-title">${rndLabel} ${isCur?'<span class="badge badge-green" style="font-size:9px">Live</span>':''}</div>`;
+      for(const m of matches) {
+        const p1w=m.winner===m.p1, p2w=m.winner===m.p2;
+        html+=`<div class="bracket-match">
+          <div class="bracket-player ${p1w?'winner':p2w?'loser':''}">
+            <span>${m.p2===null?'BYE':esc(uname(m.p1))}</span>
+            <span class="bracket-score">${p1w?m.scoreWinner??'':p2w?m.scoreLoser??'':''}</span>
+          </div>
+          <div class="bracket-player ${p2w?'winner':p1w?'loser':''}">
+            <span>${m.p2?esc(uname(m.p2)):'—'}</span>
+            <span class="bracket-score">${p2w?m.scoreWinner??'':p1w?m.scoreLoser??'':''}</span>
+          </div>
+          ${(!m.result&&m.p2&&(isJudge||(_me&&(m.p1===_me.id||m.p2===_me.id)))&&t.status==='ongoing')?
+            `<div style="padding:6px 8px;border-top:1px solid var(--border)"><button class="btn btn-outline btn-sm" style="width:100%" onclick="openResult('${m.id}','${m.p1}','${m.p2}','${esc(uname(m.p1))}','${esc(uname(m.p2))}')">Report</button></div>`:''}
+          ${(isJudge&&m.result)?`<div style="padding:4px 8px;border-top:1px solid var(--border)"><button class="btn btn-ghost btn-sm" style="width:100%" onclick="openResult('${m.id}','${m.p1}','${m.p2}','${esc(uname(m.p1))}','${esc(uname(m.p2))}',true)">Edit</button></div>`:''}
+        </div>`;
+      }
+      html+=`</div>`;
+    }
+    html+=`</div></div>`;
+  } else {
+    // ── SWISS LIST VIEW ───────────────────────────────────────
+    const roundGroups={};
+    for(const p of phasePairings) (roundGroups[p.round]=roundGroups[p.round]||[]).push(...p.matches);
+    for(const [rnd,matches] of Object.entries(roundGroups).sort((a,b)=>b[0]-a[0])) {
+      const isCur=parseInt(rnd)===t.currentRound&&_detailPhaseIdx===t.currentPhase;
+      html+=`<div style="margin-bottom:24px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:10px;display:flex;align-items:center;gap:8px">
+          Round ${rnd} ${isCur?'<span class="badge badge-green">Current</span>':''}
+        </div>`;
+      for(const m of matches) html+=renderMatchRow(m,t,uname,isJudge);
+      html+=`</div>`;
+    }
+  }
+
+  // Dispute button
+  const allMatches=data.pairings.flatMap(p=>p.matches);
+  const myMatch=allMatches.find(m=>_me&&(m.p1===_me.id||m.p2===_me.id)&&!m.result&&t.status==='ongoing');
   if(myMatch&&_me&&!isJudge) html+=`<div style="text-align:center;margin-top:8px"><button class="btn btn-outline btn-sm" onclick="openDisputeModal('${myMatch.id}')">⚠ Submit Dispute for my match</button></div>`;
   el.innerHTML=html||empty('No matches');
 }
@@ -307,7 +360,9 @@ function renderPlayersTab(data,t,isJudge,el) {
     const rows=list.map((r,i)=>`<tr>
       <td class="rank-num">${i+1}</td>
       <td style="font-weight:500">${esc(r.username)}</td>
-      <td>${(r.decks||[]).map(d=>`<span class="badge badge-blue" style="cursor:pointer" onclick="viewDeck('${esc(d.name)}','${esc(d.list||'')}')">${esc(d.name)}</span>`).join(' ')}</td>
+      <td>${(r.decks||[]).map(d=>`<span class="badge badge-blue" style="cursor:pointer;margin-right:4px"
+        onclick="viewDeckVisual('${esc(r.username)}','${esc(d.name)}',${JSON.stringify(d.list||'').replace(/'/g,"\\'")})"
+        >${esc(d.name)}</span>`).join('')}</td>
       <td>${r.checkedIn?'<span class="badge badge-green">✓</span>':'<span class="badge badge-gray">—</span>'}</td>
       ${isJudge?`<td><button class="btn btn-ghost btn-sm" onclick="orgDrop('${r.userId}')">Drop</button></td>`:'<td></td>'}
     </tr>`).join('');
@@ -317,6 +372,77 @@ function renderPlayersTab(data,t,isJudge,el) {
     </div>`;
   };
   el.innerHTML=sec('Players',active)+sec('Waitlist',waitlist)+sec('Dropped',dropped);
+}
+
+async function viewDeckVisual(playerName, deckName, listText) {
+  _id('decks-content').innerHTML = `<div class="loader-wrap"><div class="pokeball"></div><span>Loading cards…</span></div>`;
+  openModal('modal-decks');
+
+  // Parse decklist text into card names + quantities
+  const lines = (listText||'').trim().split('\n').filter(Boolean);
+  const cards = [];
+  for(const line of lines) {
+    const m = line.trim().match(/^(\d+)\s+(.+?)(?:\s+[A-Z0-9]+\s+\d+)?$/);
+    if(m) cards.push({ qty: parseInt(m[1]), name: m[2].trim() });
+  }
+
+  if(!cards.length) {
+    _id('decks-content').innerHTML = `
+      <div style="font-weight:600;color:var(--teal);margin-bottom:4px">${esc(playerName)} — ${esc(deckName)}</div>
+      <div class="text-dim">(no decklist provided)</div>`;
+    return;
+  }
+
+  // Fetch card images from API
+  const cardData = {};
+  await Promise.all(cards.map(async c => {
+    const r = await api('GET', `/api/cards/search?q=${encodeURIComponent(c.name)}`);
+    if(r && r.length) cardData[c.name] = r[0];
+  }));
+
+  // Separate Pokémon from Trainers
+  const pokemon = cards.filter(c => {
+    const d = cardData[c.name];
+    return d ? !['Item','Supporter','Stadium'].includes(d.type) : c.name.includes('ex')||(!c.name.includes(' ')||c.name.match(/^[A-Z]/));
+  });
+  const trainers = cards.filter(c => !pokemon.includes(c));
+
+  const renderSection = (title, list) => {
+    if(!list.length) return '';
+    return `<div style="margin-bottom:20px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:10px">${title} (${list.reduce((a,c)=>a+c.qty,0)})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${list.map(c => {
+          const d = cardData[c.name];
+          return `<div style="position:relative;text-align:center">
+            ${d?.image
+              ? `<div style="position:relative;display:inline-block">
+                  <img src="${esc(d.image)}" alt="${esc(c.name)}"
+                    style="height:100px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.4);transition:transform .15s;cursor:pointer"
+                    onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform=''"
+                    onerror="this.parentElement.innerHTML='<div style=\'width:70px;height:100px;background:var(--surface2);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text3);text-align:center;padding:4px\'>${esc(c.name)}</div>'">
+                  ${c.qty>1?`<div style="position:absolute;top:4px;right:4px;background:var(--accent);color:#fff;border-radius:10px;font-size:11px;font-weight:700;padding:1px 6px">×${c.qty}</div>`:''}
+                </div>`
+              : `<div style="width:70px;height:100px;background:var(--surface2);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text3);text-align:center;padding:4px">${esc(c.name)}</div>`
+            }
+            <div style="font-size:10px;color:var(--text3);margin-top:4px;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  };
+
+  _id('decks-content').innerHTML = `
+    <div style="margin-bottom:16px">
+      <div style="font-weight:700;font-size:16px">${esc(playerName)}</div>
+      <div style="color:var(--teal);font-size:14px">${esc(deckName)} · ${cards.reduce((a,c)=>a+c.qty,0)} cards</div>
+    </div>
+    ${renderSection('Pokémon', pokemon)}
+    ${renderSection('Trainers', trainers)}
+    <hr class="divider">
+    <div style="font-size:11px;color:var(--text3)">
+      ${cards.map(c=>`${c.qty}× ${esc(c.name)}`).join(' · ')}
+    </div>`;
 }
 
 // ── Judge Panel ───────────────────────────────────────────────────────────────

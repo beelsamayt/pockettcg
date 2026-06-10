@@ -787,6 +787,15 @@ function openRegistration() {
   renderTregModal(); openModal('modal-treg');
 }
 
+function tregSave() {
+  _tregDecks.forEach((d,i) => {
+    d.name = _id(`treg-name-${i}`)?.value || d.name;
+    d.list = _id(`treg-list-${i}`)?.value || d.list;
+  });
+}
+function tregAddDeck() { tregSave(); _tregDecks.push({name:'',list:'',mode:'text'}); renderTregModal(); }
+function tregRemoveDeck(i) { tregSave(); _tregDecks.splice(i,1); renderTregModal(); }
+
 async function submitRegistration() {
   tregSave();
   const t=_tregTournament;

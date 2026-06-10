@@ -786,30 +786,7 @@ function openRegistration() {
   _tregDecks=Array.from({length:_tregTournament.minDecks},()=>({name:'',list:'',mode:'text'}));
   renderTregModal(); openModal('modal-treg');
 }
-function renderTregModal() {
-  const t=_tregTournament; const minD=t.minDecks||1,maxD=t.maxDecks||1;
-  const mm=MATCH_MODES[t.phases?.[0]?.matchMode];
-  let html='';
-  if(mm) html+=`<div class="mode-info mb-16"><strong>${mm.icon} ${mm.label}</strong>${mm.desc}</div>`;
-  html+=`<p style="color:var(--text2);font-size:13px;margin-bottom:16px">Submit ${minD===maxD?minD:minD+'–'+maxD} deck(s).${t.deckRules?` <strong>Rules:</strong> ${esc(t.deckRules)}`:''}`;
-  if(t.entryType==='code') html+=`<div class="form-group"><label>Entry Code</label><input class="form-input" id="treg-code" placeholder="Enter code"></div>`;
-  _tregDecks.forEach((d,i)=>{
-    html+=`<div class="deck-slot">
-      <div class="deck-slot-hdr"><span class="deck-slot-title">Deck ${i+1}${i<minD?' <span style="color:var(--accent);font-size:10px">required</span>':''}</span>
-      ${i>=minD?`<button class="deck-remove-btn" onclick="tregRemoveDeck(${i})">×</button>`:''}</div>
-      <div class="form-group" style="margin-bottom:8px"><label>Name</label>
-        <input class="form-input" placeholder="e.g. Charizard ex" value="${esc(d.name)}" id="treg-name-${i}"></div>
-      <div class="form-group" style="margin-bottom:0"><label>Decklist</label>
-        <textarea class="form-input" style="min-height:80px;font-size:12px;font-family:monospace" id="treg-list-${i}">${esc(d.list)}</textarea></div>
-    </div>`;
-  });
-  if(_tregDecks.length<maxD) html+=`<button class="add-deck-btn" onclick="tregAddDeck()">+ Add Deck ${_tregDecks.length+1}</button>`;
-  html+=`<button class="btn btn-primary btn-block" onclick="submitRegistration()">Register (${_tregDecks.length} deck${_tregDecks.length>1?'s':''})</button>`;
-  _id('treg-content').innerHTML=html;
-}
-function tregSave(){_tregDecks.forEach((d,i)=>{d.name=_id(`treg-name-${i}`)?.value||d.name;d.list=_id(`treg-list-${i}`)?.value||d.list;});}
-function tregAddDeck(){tregSave();_tregDecks.push({name:'',list:''});renderTregModal();}
-function tregRemoveDeck(i){tregSave();_tregDecks.splice(i,1);renderTregModal();}
+
 async function submitRegistration() {
   tregSave();
   const t=_tregTournament;

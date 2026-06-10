@@ -361,7 +361,7 @@ function renderPlayersTab(data,t,isJudge,el) {
       <td class="rank-num">${i+1}</td>
       <td style="font-weight:500">${esc(r.username)}</td>
       <td>${(r.decks||[]).map((d,di)=>`<span class="badge badge-blue" style="cursor:pointer;margin-right:4px"
-        onclick="viewDeckVisualById('${esc(r.userId)}','${esc(r.username)}',${di})"
+        onclick="window.open('/deck.html?t=${esc(_currentDetailId)}&u=${esc(r.userId)}&d=${di}','_blank')"
         >${esc(d.name)}</span>`).join('')}</td>
       <td>${r.checkedIn?'<span class="badge badge-green">✓</span>':'<span class="badge badge-gray">—</span>'}</td>
       ${isJudge?`<td><button class="btn btn-ghost btn-sm" onclick="orgDrop('${r.userId}')">Drop</button></td>`:'<td></td>'}

@@ -88,9 +88,9 @@ function showPage(name, extra) {
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.toggle('active',t.dataset.page===name));
   window.scrollTo(0,0);
   // Update URL
-  if(name==='home')       window.history.pushState({page:'home'}, '', '/');
-  if(name==='create')     window.history.pushState({page:'create'}, '', '/organize');
-  if(name==='my')         window.history.pushState({page:'my'}, '', '/my-events');
+  if(name==='home')       { stopAutoRefresh(); window.history.pushState({page:'home'}, '', '/'); }
+  if(name==='create')     { stopAutoRefresh(); window.history.pushState({page:'create'}, '', '/organize'); }
+  if(name==='my')         { stopAutoRefresh(); window.history.pushState({page:'my'}, '', '/my-events'); }
   if(name==='tournament'&&extra) window.history.pushState({page:'tournament',id:extra}, '', `/tournament/${extra}`);
   if(name==='home')   loadTournamentList();
   if(name==='create') initWizard();
@@ -189,6 +189,7 @@ async function openTournament(id) {
     });
   }
   renderDetailContent();
+  if(t.status==='ongoing') startAutoRefresh();
 }
 
 async function renderDetailContent() {
@@ -212,7 +213,19 @@ function renderDetailsTab(t,isOrg,isJudge,el) {
 
   let actions='';
   if(!_token){
-    if(t.status==='registration') actions=`<button class="btn btn-primary btn-block" onclick="openModal('modal-login')">Log in to Register</button>`;
+    if(t.status==='registration') actions=`
+      <div style="background:rgba(233,69,96,.08);border:1px solid rgba(233,69,96,.2);border-radius:var(--r);padding:14px;text-align:center;margin-bottom:12px">
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">Registration is Open</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:12px">${(t.registrations||[]).filter(r=>!r.waitlist).length} players registered${t.maxPlayers?' / '+t.maxPlayers+' max':''}</div>
+        <button class="btn btn-primary btn-block" onclick="openModal('modal-register')">Create account to Register</button>
+        <div style="text-align:center;margin-top:8px;font-size:12px;color:var(--text2)">Already have an account? <span style="color:var(--accent);cursor:pointer" onclick="openModal('modal-login')">Log in</span></div>
+      </div>`;
+    else if(t.status==='ongoing') actions=`
+      <div style="background:rgba(0,212,170,.08);border:1px solid rgba(0,212,170,.2);border-radius:var(--r);padding:14px;text-align:center">
+        <div style="color:var(--teal);font-weight:600;margin-bottom:4px">● Tournament in Progress</div>
+        <div style="font-size:12px;color:var(--text2)">Round ${t.currentRound} of Phase ${t.currentPhase+1}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:8px">Pairings and standings are public — use the tabs above to follow along.</div>
+      </div>`;
   } else if(_myReg&&!_myReg.waitlist&&!_myReg.dropped) {
     actions=`<div class="reg-status"><strong>✓ You are registered</strong><span>${(_myReg.decks||[]).length} deck(s) submitted</span></div>
       <button class="btn btn-outline btn-block btn-sm mb-8" onclick="openMyDecks()">View my decklists</button>
@@ -316,6 +329,13 @@ function renderPairingsTab(data,t,isJudge,el) {
   const reg=t.registrations||[];
   const uname=id=>reg.find(r=>r.userId===id)?.username||'?';
 
+  // Auto-refresh indicator
+  const refreshBadge = t.status==='ongoing'
+    ? `<div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-bottom:12px">
+        <span style="font-size:11px;color:var(--text3)">Auto-refreshes every 30s</span>
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--teal);display:inline-block;animation:pulse 2s infinite"></span>
+      </div>` : '';
+
   // Phase pills if multiple phases
   const phases=data.phases||[];
   let phasePills='';
@@ -331,7 +351,7 @@ function renderPairingsTab(data,t,isJudge,el) {
   const phase=phases[_detailPhaseIdx]||{};
   const isElim=phase.type==='single_elim'||phase.type==='double_elim';
 
-  let html=phasePills;
+  let html=phasePills + refreshBadge;
 
   if(isElim && phasePairings.length) {
     // ── BRACKET VIEW ─────────────────────────────────────────
@@ -1254,6 +1274,32 @@ function onEntryTypeChange(val){
 }
 
 // ── Timer ─────────────────────────────────────────────────────────────────────
+let _autoRefreshInterval = null;
+let _autoRefreshTab = null;
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  _autoRefreshTab = _detailTab;
+  _autoRefreshInterval = setInterval(async () => {
+    if(!_currentDetailId) { stopAutoRefresh(); return; }
+    // Only refresh if on pairings or standings tab and tournament is ongoing
+    if(!['pairings','standings'].includes(_detailTab)) return;
+    if(_currentTournament?.status !== 'ongoing') { stopAutoRefresh(); return; }
+    // Silently refresh data
+    try {
+      const fresh = await api('GET', `/api/tournaments/${_currentDetailId}`);
+      if(fresh && !fresh.error) {
+        _currentTournament = fresh;
+        renderDetailContent();
+      }
+    } catch(e) {}
+  }, 30000); // every 30 seconds
+}
+
+function stopAutoRefresh() {
+  if(_autoRefreshInterval) { clearInterval(_autoRefreshInterval); _autoRefreshInterval = null; }
+}
+
 let _timerInterval = null;
 function formatTimer(timerEnd) {
   const diff = Math.max(0, timerEnd - Date.now());

@@ -153,7 +153,7 @@ function buildTournamentTable(title,list,type) {
 
 // ── Tournament Detail ─────────────────────────────────────────────────────────
 async function openTournament(id) {
-  _currentDetailId=id; _detailTab='details'; _currentTournament=null; _myReg=null;
+  _currentDetailId=id; _detailTab='details'; _currentTournament=null; _myReg=null; _playersCache=null;
   showPage('tournament');
   _id('detail-title').textContent='Loading…';
   _id('tournament-content').innerHTML=loader();
@@ -360,8 +360,8 @@ function renderPlayersTab(data,t,isJudge,el) {
     const rows=list.map((r,i)=>`<tr>
       <td class="rank-num">${i+1}</td>
       <td style="font-weight:500">${esc(r.username)}</td>
-      <td>${(r.decks||[]).map(d=>`<span class="badge badge-blue" style="cursor:pointer;margin-right:4px"
-        onclick="viewDeckVisual('${esc(r.username)}','${esc(d.name)}',${JSON.stringify(d.list||'').replace(/'/g,"\\'")})"
+      <td>${(r.decks||[]).map((d,di)=>`<span class="badge badge-blue" style="cursor:pointer;margin-right:4px"
+        onclick="viewDeckVisualById('${esc(r.userId)}','${esc(r.username)}',${di})"
         >${esc(d.name)}</span>`).join('')}</td>
       <td>${r.checkedIn?'<span class="badge badge-green">✓</span>':'<span class="badge badge-gray">—</span>'}</td>
       ${isJudge?`<td><button class="btn btn-ghost btn-sm" onclick="orgDrop('${r.userId}')">Drop</button></td>`:'<td></td>'}
@@ -372,6 +372,19 @@ function renderPlayersTab(data,t,isJudge,el) {
     </div>`;
   };
   el.innerHTML=sec('Players',active)+sec('Waitlist',waitlist)+sec('Dropped',dropped);
+}
+
+let _playersCache = null;
+
+async function viewDeckVisualById(userId, username, deckIdx) {
+  // Get full registration data (with lists)
+  if(!_playersCache) {
+    _playersCache = await api('GET', `/api/tournaments/${_currentDetailId}/registrations`);
+  }
+  const reg = _playersCache?.find(r => r.userId === userId);
+  const deck = reg?.decks?.[deckIdx];
+  if(!deck) return toast('Deck not found','error');
+  viewDeckVisual(username, deck.name, deck.list || '');
 }
 
 async function viewDeckVisual(playerName, deckName, listText) {

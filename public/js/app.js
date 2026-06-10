@@ -758,9 +758,12 @@ function changeCardQty(i, name, delta) {
   _tregDecks[i].list = cardsToText(_tregDecks[i].cards);
   renderTregModal();
 }
+
+// ── Registration ──────────────────────────────────────────────────────────────
+function openRegistration() {
   if(!_token) return openModal('modal-login');
   _tregTournament=_currentTournament;
-  _tregDecks=Array.from({length:_tregTournament.minDecks},()=>({name:'',list:''}));
+  _tregDecks=Array.from({length:_tregTournament.minDecks},()=>({name:'',list:'',mode:'text'}));
   renderTregModal(); openModal('modal-treg');
 }
 function renderTregModal() {

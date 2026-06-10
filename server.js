@@ -491,7 +491,12 @@ app.get('/api/match-modes', (req, res) => res.json(MATCH_MODES));
 // ══════════════════════════════════════════════════════════════════════════════
 const { Resend } = require('resend');
 const crypto = require('crypto');
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy init so env var is available at runtime
+let _resend = null;
+function getResend() {
+  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
+  return _resend;
+}
 
 app.post('/api/forgot-password', async (req, res) => {
   try {
@@ -504,7 +509,7 @@ app.post('/api/forgot-password', async (req, res) => {
     const expiresAt = Date.now() + 60 * 60 * 1000; // 1 hour
     await db.saveResetToken(user.id, token, expiresAt);
     const resetUrl = `${process.env.APP_URL || 'https://pockettcg-production.up.railway.app'}/reset-password?token=${token}`;
-    await resend.emails.send({
+    await getResend().emails.send({
       from: 'PocketTCG <noreply@resend.dev>',
       to: email.trim(),
       subject: 'Reset your PocketTCG password',

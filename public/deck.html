@@ -6,179 +6,138 @@
 <title>Decklist — PocketTCG</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/css/app.css">
 <style>
-.deck-header { background:var(--bg2); border-bottom:1px solid var(--border); padding:20px; }
-.deck-header-inner { max-width:1200px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
-.deck-title { font-family:var(--display); font-size:22px; font-weight:700; }
-.card-grid { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:24px; }
-.card-item { text-align:center; cursor:pointer; position:relative; }
-.card-item img { height:120px; border-radius:8px; box-shadow:0 3px 12px rgba(0,0,0,.5); transition:transform .15s, box-shadow .15s; display:block; }
-.card-item img:hover { transform:scale(1.08) translateY(-4px); box-shadow:0 8px 24px rgba(0,0,0,.6); }
-.card-item .card-placeholder { width:86px; height:120px; background:var(--surface2); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--text3); text-align:center; padding:6px; }
-.card-item .qty-badge { position:absolute; top:5px; right:5px; background:var(--accent); color:#fff; border-radius:10px; font-size:11px; font-weight:700; padding:1px 7px; }
-.card-item .card-name { font-size:10px; color:var(--text3); margin-top:5px; max-width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.section-hdr { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--text3); margin-bottom:14px; padding-bottom:8px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
-.type-icon { width:20px; height:20px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:11px; flex-shrink:0; }
-.back-btn { color:var(--text3); font-size:13px; cursor:pointer; display:flex; align-items:center; gap:6px; text-decoration:none; }
-.back-btn:hover { color:var(--text); }
-.stat-pill { background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:4px 12px; font-size:12px; color:var(--text2); }
-.type-fire { background:rgba(255,100,50,.2); color:#ff8060; }
-.type-water { background:rgba(50,150,255,.2); color:#60a0ff; }
-.type-grass { background:rgba(50,200,100,.2); color:#60d080; }
-.type-lightning { background:rgba(255,220,0,.2); color:#ffd700; }
-.type-psychic { background:rgba(200,100,200,.2); color:#d080d0; }
-.type-fighting { background:rgba(200,100,50,.2); color:#d08060; }
-.type-darkness { background:rgba(80,80,120,.3); color:#a0a0d0; }
-.type-metal { background:rgba(150,150,180,.2); color:#c0c0e0; }
-.type-colorless { background:rgba(180,180,180,.15); color:#c0c0c0; }
-.type-trainer { background:rgba(83,52,131,.3); color:#a98cdb; }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#1a1a2e;--bg2:#16213e;--surface:#1e2640;--surface2:#252d4a;
+  --border:#2e3a5c;--accent:#e94560;--teal:#00d4aa;--text:#e8eaf0;
+  --text2:#9aa5c4;--text3:#6b7a9e;--r:8px;
+}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.accent-strip{height:3px;background:linear-gradient(90deg,var(--accent),#533483,var(--teal))}
+.header{background:var(--bg2);border-bottom:1px solid var(--border);padding:16px 24px;position:sticky;top:0;z-index:10}
+.header-inner{max-width:1200px;margin:0 auto}
+.back{font-size:12px;color:var(--text3);cursor:pointer;margin-bottom:8px;display:inline-flex;align-items:center;gap:4px}
+.back:hover{color:var(--text)}
+.deck-name{font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;margin-bottom:8px}
+.pills{display:flex;gap:8px;flex-wrap:wrap}
+.pill{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 12px;font-size:12px;color:var(--text2)}
+.pill.teal{border-color:rgba(0,212,170,.3);color:var(--teal);background:rgba(0,212,170,.08)}
+.pill.purple{border-color:rgba(83,52,131,.4);color:#a98cdb;background:rgba(83,52,131,.15)}
+.main{max-width:1200px;margin:0 auto;padding:24px;display:grid;grid-template-columns:1fr 1fr;gap:32px}
+@media(max-width:700px){.main{grid-template-columns:1fr;gap:20px}}
+.section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+.card-grid{display:flex;flex-wrap:wrap;gap:8px}
+.card-item{position:relative;cursor:default}
+.card-item img{height:110px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.5);display:block;transition:transform .15s,box-shadow .15s}
+.card-item img:hover{transform:scale(1.06) translateY(-3px);box-shadow:0 6px 20px rgba(0,0,0,.6)}
+.card-placeholder{width:79px;height:110px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text3);text-align:center;padding:6px;line-height:1.3}
+.qty-badge{position:absolute;top:4px;right:4px;background:var(--accent);color:#fff;border-radius:10px;font-size:10px;font-weight:700;padding:1px 6px;pointer-events:none}
+.card-name{font-size:10px;color:var(--text3);margin-top:4px;max-width:79px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+.text-list{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin:0 24px 24px;max-width:1200px;margin-left:auto;margin-right:auto}
+.text-list-inner{max-width:1200px}
+.text-list p{font-size:12px;color:var(--text3);line-height:1.8}
+.loader{display:flex;flex-direction:column;align-items:center;gap:14px;padding:60px;color:var(--text3)}
+.pokeball{width:38px;height:38px;border-radius:50%;background:linear-gradient(to bottom,var(--accent) 50%,var(--surface2) 50%);border:3px solid var(--border);position:relative;animation:spin .9s linear infinite}
+.pokeball::after{content:'';position:absolute;inset:0;margin:auto;width:100%;height:3px;background:var(--border);top:calc(50% - 1.5px)}
+@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
 <div class="accent-strip"></div>
-<div class="deck-header">
-  <div class="deck-header-inner">
-    <div>
-      <a class="back-btn" id="back-btn" href="javascript:history.back()">← Back to tournament</a>
-      <div class="deck-title" id="deck-title" style="margin-top:6px">Loading…</div>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap" id="deck-meta"></div>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap" id="deck-stats"></div>
+<div class="header">
+  <div class="header-inner">
+    <div class="back" onclick="history.back()">← Back to tournament</div>
+    <div class="deck-name" id="deck-name">Loading…</div>
+    <div class="pills" id="deck-pills"></div>
   </div>
 </div>
-<div class="container" id="deck-content">
-  <div class="loader-wrap"><div class="pokeball"></div><span>Loading cards…</span></div>
+<div id="deck-body">
+  <div class="loader"><div class="pokeball"></div><span>Loading cards…</span></div>
 </div>
 
 <script>
-const TYPE_COLORS = {
-  'Fire':'type-fire','Water':'type-water','Grass':'type-grass','Lightning':'type-lightning',
-  'Psychic':'type-psychic','Fighting':'type-fighting','Darkness':'type-darkness',
-  'Metal':'type-metal','Colorless':'type-colorless','Dragon':'type-colorless','Trainer':'type-trainer'
-};
-const TYPE_ICONS = {
-  'Fire':'🔥','Water':'💧','Grass':'🌿','Lightning':'⚡','Psychic':'🔮',
-  'Fighting':'👊','Darkness':'🌑','Metal':'⚙️','Colorless':'⭐','Dragon':'🐉','Trainer':'🃏'
-};
-
-async function api(url) {
-  const r = await fetch(url);
-  return r.json();
-}
+function esc(s){return !s?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
 async function init() {
-  const params = new URLSearchParams(location.search);
-  const tournamentId = params.get('t');
-  const userId = params.get('u');
-  const deckIdx = parseInt(params.get('d') || '0');
+  const p = new URLSearchParams(location.search);
+  const tid = p.get('t'), uid = p.get('u'), di = parseInt(p.get('d')||'0');
+  if(!tid||!uid){render(null,null,null);return;}
 
-  if(!tournamentId || !userId) {
-    document.getElementById('deck-content').innerHTML = '<div class="empty">Missing parameters</div>';
-    return;
-  }
+  const regs = await fetch(`/api/tournaments/${tid}/registrations`).then(r=>r.json()).catch(()=>[]);
+  const reg = regs?.find(r=>r.userId===uid);
+  const deck = reg?.decks?.[di];
+  if(!deck){render(null,reg?.username,null);return;}
 
-  // Fetch registrations
-  const regs = await api(`/api/tournaments/${tournamentId}/registrations`);
-  const reg = regs?.find(r => r.userId === userId);
-  const deck = reg?.decks?.[deckIdx];
+  document.title = `${reg.username} — ${deck.name} | PocketTCG`;
 
-  if(!deck) {
-    document.getElementById('deck-content').innerHTML = '<div class="empty">Deck not found</div>';
-    return;
-  }
-
-  document.getElementById('deck-title').textContent = `${reg.username} — ${deck.name}`;
-  document.getElementById('back-btn').href = `/?tournament=${tournamentId}`;
-
-  // Parse list
   const lines = (deck.list||'').trim().split('\n').filter(Boolean);
   const cards = [];
-  for(const line of lines) {
-    const m = line.trim().match(/^(\d+)\s+(.+?)(?:\s+[A-Z0-9]+\s+\d+)?$/);
-    if(m) cards.push({ qty: parseInt(m[1]), name: m[2].trim() });
-  }
-
-  if(!cards.length) {
-    document.getElementById('deck-content').innerHTML = '<div class="empty">No decklist provided</div>';
-    return;
+  for(const line of lines){
+    const m = line.trim().match(/^(\d+)\s+(.+?)(?:\s+[A-Za-z0-9]+\s+\d+)?$/);
+    if(m) cards.push({qty:parseInt(m[1]),name:m[2].trim()});
   }
 
   // Fetch card data
   const cardData = {};
-  await Promise.all(cards.map(async c => {
-    try {
-      const r = await api(`/api/cards/search?q=${encodeURIComponent(c.name)}`);
-      if(r?.length) cardData[c.name] = r[0];
-    } catch(e) {}
+  await Promise.all(cards.map(async c=>{
+    try{
+      const r = await fetch(`/api/cards/search?q=${encodeURIComponent(c.name)}`).then(x=>x.json());
+      if(r?.length) cardData[c.name]=r[0];
+    }catch(e){}
   }));
 
-  // Group by type
-  const typeGroups = {};
-  for(const c of cards) {
-    const d = cardData[c.name];
-    const type = d?.type || (c.name.match(/Professor|Poké Ball|Rocky Helmet|Potion|Rare Candy|Gio|Cyrus|Misty|Lt\.|Giovanni|Red Card|Cape|Speed|Sabrina|Brock|Nurse/i) ? 'Trainer' : 'Unknown');
-    if(!typeGroups[type]) typeGroups[type] = [];
-    typeGroups[type].push({ ...c, cardData: d });
-  }
-
-  // Separate Pokémon vs Trainers
-  const pokemonTypes = Object.entries(typeGroups).filter(([t]) => t !== 'Trainer' && t !== 'Unknown');
-  const trainerGroup = typeGroups['Trainer'] || [];
-  const unknownGroup = typeGroups['Unknown'] || [];
-
-  const totalCards = cards.reduce((a,c)=>a+c.qty,0);
-  const totalPokemon = [...pokemonTypes.flatMap(([,c])=>c), ...unknownGroup].reduce((a,c)=>a+c.qty,0);
-  const totalTrainers = trainerGroup.reduce((a,c)=>a+c.qty,0);
-
-  document.getElementById('deck-meta').innerHTML = `
-    <span class="stat-pill">${totalCards} cards</span>
-    <span class="stat-pill">⚡ ${totalPokemon} Pokémon</span>
-    <span class="stat-pill">🃏 ${totalTrainers} Trainers</span>`;
-
-  function renderCards(list) {
-    return list.map(c => {
-      const d = c.cardData;
-      return `<div class="card-item">
-        ${d?.image
-          ? `<img src="${d.image}" alt="${escH(c.name)}" loading="lazy" onerror="this.outerHTML='<div class=\\"card-placeholder\\">${escH(c.name)}</div>'">`
-          : `<div class="card-placeholder">${escH(c.name)}</div>`}
-        ${c.qty > 1 ? `<div class="qty-badge">×${c.qty}</div>` : ''}
-        <div class="card-name">${escH(c.name)}</div>
-      </div>`;
-    }).join('');
-  }
-
-  let html = '';
-
-  // Pokémon section
-  const allPokemon = [...pokemonTypes.flatMap(([,c])=>c), ...unknownGroup];
-  if(allPokemon.length) {
-    html += `<div style="margin-bottom:28px">
-      <div class="section-hdr">⚡ Pokémon (${allPokemon.reduce((a,c)=>a+c.qty,0)})</div>
-      <div class="card-grid">${renderCards(allPokemon)}</div>
-    </div>`;
-  }
-
-  // Trainer section
-  if(trainerGroup.length) {
-    html += `<div style="margin-bottom:28px">
-      <div class="section-hdr">🃏 Trainers (${trainerGroup.reduce((a,c)=>a+c.qty,0)})</div>
-      <div class="card-grid">${renderCards(trainerGroup)}</div>
-    </div>`;
-  }
-
-  // Text list
-  html += `<div class="card card-sm" style="margin-top:8px">
-    <div style="font-size:11px;color:var(--text3);line-height:1.8">
-      ${cards.map(c=>`${c.qty}× ${escH(c.name)}`).join(' &nbsp;·&nbsp; ')}
-    </div>
-  </div>`;
-
-  document.getElementById('deck-content').innerHTML = html;
+  render(cards, reg.username, deck.name, cardData);
 }
 
-function escH(s) { return !s?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function render(cards, player, deckName, cardData={}) {
+  if(!cards){
+    document.getElementById('deck-name').textContent='Deck not found';
+    document.getElementById('deck-body').innerHTML='<div class="loader"><span>Could not load this deck.</span></div>';
+    return;
+  }
+  document.getElementById('deck-name').textContent=`${player} — ${deckName}`;
+
+  const pokemon = cards.filter(c=>cardData[c.name]?.type!=='Trainer');
+  const trainers = cards.filter(c=>cardData[c.name]?.type==='Trainer');
+  // Cards not in DB — guess trainer by common names
+  const trainerKeywords = /Professor|Poké Ball|Rocky Helmet|Potion|Rare Candy|Giovanni|Cyrus|Misty|Brock|Lt\.|Card|Cape|Speed|Sabrina|Iono|Arven|Penny|Lillie|Red|Blue|Nest Ball|Ultra Ball|Communication|Incubator|Stop|Lab/i;
+  const unknowns = cards.filter(c=>!cardData[c.name]);
+  const unknownTrainers = unknowns.filter(c=>trainerKeywords.test(c.name));
+  const unknownPokemon = unknowns.filter(c=>!trainerKeywords.test(c.name));
+
+  const allPokemon = [...pokemon, ...unknownPokemon];
+  const allTrainers = [...trainers, ...unknownTrainers];
+  const totalPkm = allPokemon.reduce((a,c)=>a+c.qty,0);
+  const totalTrn = allTrainers.reduce((a,c)=>a+c.qty,0);
+  const total = cards.reduce((a,c)=>a+c.qty,0);
+
+  document.getElementById('deck-pills').innerHTML=`
+    <span class="pill">${total} cards</span>
+    <span class="pill teal">⚡ ${totalPkm} Pokémon</span>
+    <span class="pill purple">🃏 ${totalTrn} Trainers</span>`;
+
+  function cardHtml(c) {
+    const d = cardData[c.name];
+    const img = d?.image ? `<img src="${esc(d.image)}" alt="${esc(c.name)}" loading="lazy" onerror="this.outerHTML='<div class=\\"card-placeholder\\">${esc(c.name)}</div>'">` : `<div class="card-placeholder">${esc(c.name)}</div>`;
+    return `<div class="card-item">${img}${c.qty>1?`<div class="qty-badge">×${c.qty}</div>`:''}<div class="card-name">${esc(c.name)}</div></div>`;
+  }
+
+  document.getElementById('deck-body').innerHTML = `
+    <div class="main">
+      <div>
+        <div class="section-title">⚡ Pokémon (${totalPkm})</div>
+        <div class="card-grid">${allPokemon.map(cardHtml).join('')}</div>
+      </div>
+      <div>
+        <div class="section-title">🃏 Trainers (${totalTrn})</div>
+        <div class="card-grid">${allTrainers.map(cardHtml).join('')}</div>
+      </div>
+    </div>
+    <div class="text-list">
+      <p>${cards.map(c=>`${c.qty}× ${esc(c.name)}`).join(' &nbsp;·&nbsp; ')}</p>
+    </div>`;
+}
 
 init();
 </script>

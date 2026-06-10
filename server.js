@@ -231,8 +231,10 @@ app.post('/api/tournaments/:id/start', auth, async (req, res) => {
     if (active.length < 2) return res.status(400).json({ error: 'Need at least 2 players' });
     t.status = 'ongoing'; t.currentPhase = 0; t.currentRound = 1; t.startedAt = Date.now();
     const matches = swissPairings(active, [], 1);
-    t.pairings.push({ phaseIdx:0, round:1, matches, startedAt:Date.now() });
+    t.pairings.push({ phaseIdx:0, round:1, matches, startedAt:Date.now(), timerEnd: t.roundMinutes ? Date.now() + t.roundMinutes*60000 : null });
     await db.saveTournament(t);
+    // Send round emails async
+    sendRoundEmails(t, matches, 1).catch(()=>{});
     res.json(t);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -265,15 +267,17 @@ app.post('/api/tournaments/:id/next-round', auth, async (req, res) => {
       const newMatches = nextPhase.type==='single_elim'||nextPhase.type==='double_elim'
         ? buildSingleElimBracket(advReg, 1)
         : swissPairings(advReg, [], 1);
-      t.pairings.push({ phaseIdx:nextIdx, round:1, matches:newMatches, startedAt:Date.now() });
+      t.pairings.push({ phaseIdx:nextIdx, round:1, matches:newMatches, startedAt:Date.now(), timerEnd: t.roundMinutes ? Date.now() + t.roundMinutes*60000 : null });
       await db.saveTournament(t);
+      sendRoundEmails(t, newMatches, 1).catch(()=>{});
       return res.json({ phaseAdvanced:true, newPhase:nextPhase.name||`Phase ${nextIdx+1}`, tournament:t });
     }
     t.currentRound++;
     const active = t.registrations.filter(r=>!r.waitlist&&!r.dropped);
     const newMatches = swissPairings(active, phaseResults, t.currentRound);
-    t.pairings.push({ phaseIdx:t.currentPhase, round:t.currentRound, matches:newMatches, startedAt:Date.now() });
+    t.pairings.push({ phaseIdx:t.currentPhase, round:t.currentRound, matches:newMatches, startedAt:Date.now(), timerEnd: t.roundMinutes ? Date.now() + t.roundMinutes*60000 : null });
     await db.saveTournament(t);
+    sendRoundEmails(t, newMatches, t.currentRound).catch(()=>{});
     res.json({ tournament:t });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -470,12 +474,49 @@ app.get('/api/my/tournaments', auth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Edit decklist (while registration is open)
+app.patch('/api/tournaments/:id/register', auth, async (req, res) => {
+  try {
+    const t = await db.getTournament(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Not found' });
+    if (t.status !== 'registration') return res.status(400).json({ error: 'Cannot edit after tournament starts' });
+    const rIdx = t.registrations.findIndex(r => r.userId === req.user.id);
+    if (rIdx === -1) return res.status(404).json({ error: 'Not registered' });
+    const { decks } = req.body;
+    if (!decks || decks.length < t.minDecks || decks.length > t.maxDecks)
+      return res.status(400).json({ error: `Submit between ${t.minDecks} and ${t.maxDecks} deck(s)` });
+    t.registrations[rIdx].decks = decks;
+    await db.saveTournament(t);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/my/registrations', auth, async (req, res) => {
   try {
     const all = await db.getAllTournaments();
     res.json(all.filter(t=>t.registrations?.find(r=>r.userId===req.user.id)).map(toSummary));
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
+
+// Profile page
+app.get('/api/profile/:username', authOpt, async (req, res) => {
+  try {
+    const target = await db.getUserByUsername(req.params.username);
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    const all = await db.getAllTournaments();
+    const participated = all.filter(t => t.registrations?.find(r => r.userId === target.id));
+    const profile = participated.map(t => {
+      const reg = t.registrations.find(r => r.userId === target.id);
+      const phaseResults = t.results || [];
+      const wins = phaseResults.filter(r => r.winner === target.id).length;
+      const losses = phaseResults.filter(r => r.loser === target.id).length;
+      return { id: t.id, name: t.name, status: t.status, wins, losses, dropped: reg?.dropped, decks: reg?.decks?.map(d => ({ name: d.name })) };
+    });
+    res.json({ username: target.username, tournaments: profile, totalWins: profile.reduce((a,t)=>a+t.wins,0), totalLosses: profile.reduce((a,t)=>a+t.losses,0) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
 
 app.get('/api/my/judging', auth, async (req, res) => {
   try {
@@ -511,6 +552,63 @@ async function getCards() {
     return _cardsCache;
   } catch(e) {
     return _cardsCache || [];
+  }
+}
+
+// ── Round timer ───────────────────────────────────────────────────────────────
+app.patch('/api/tournaments/:id/timer', auth, async (req, res) => {
+  try {
+    const t = await db.getTournament(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Not found' });
+    if (!isJudgeOrOrg(t, req.user.id)) return res.status(403).json({ error: 'Forbidden' });
+    t.roundMinutes = parseInt(req.body.minutes) || 0;
+    const cur = t.pairings.find(p => p.phaseIdx===t.currentPhase && p.round===t.currentRound);
+    if (cur) cur.timerEnd = t.roundMinutes ? Date.now() + t.roundMinutes*60000 : null;
+    await db.saveTournament(t);
+    res.json({ ok: true, timerEnd: cur?.timerEnd || null });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Join link ─────────────────────────────────────────────────────────────────
+app.get('/api/join/:id', authOpt, async (req, res) => {
+  try {
+    const t = await db.getTournament(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Not found' });
+    res.json(toSummary(t));
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Round email helper ────────────────────────────────────────────────────────
+async function sendRoundEmails(t, matches, round) {
+  if (!process.env.RESEND_API_KEY) return;
+  const appUrl = process.env.APP_URL || 'https://pockettcg-production.up.railway.app';
+  const tourneyUrl = `${appUrl}/?t=${t.id}`;
+  for (const m of matches) {
+    if (!m.p2) continue;
+    for (const [playerId, oppId] of [[m.p1,m.p2],[m.p2,m.p1]]) {
+      const reg = t.registrations.find(r => r.userId===playerId);
+      const opp = t.registrations.find(r => r.userId===oppId);
+      if (!reg) continue;
+      const user = await db.getUser(playerId).catch(()=>null);
+      if (!user?.email) continue;
+      try {
+        await getResend().emails.send({
+          from: 'PocketTCG <noreply@resend.dev>',
+          to: user.email,
+          subject: `Round ${round} pairings — ${t.name}`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;background:#1a1a2e;color:#e8eaf0;padding:28px;border-radius:12px">
+            <h2 style="color:#e94560;margin-bottom:4px">⚡ PocketTCG</h2>
+            <h3 style="margin-bottom:20px;color:#fff">${t.name}</h3>
+            <div style="background:#252d4a;border-radius:8px;padding:16px;margin-bottom:20px">
+              <div style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#6b7a9e;margin-bottom:8px">Round ${round}</div>
+              <div style="font-size:20px;font-weight:700;color:#00d4aa">${reg.username} <span style="color:#6b7a9e;font-size:16px">vs</span> ${opp?.username||'?'}</div>
+            </div>
+            <a href="${tourneyUrl}" style="display:inline-block;background:#e94560;color:#fff;padding:11px 22px;border-radius:8px;text-decoration:none;font-weight:600">View Pairings →</a>
+            <p style="color:#6b7a9e;font-size:12px;margin-top:20px">Good luck! Report your result on the tournament page.</p>
+          </div>`
+        });
+      } catch(e) {}
+    }
   }
 }
 

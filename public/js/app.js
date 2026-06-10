@@ -183,13 +183,15 @@ function renderDetailsTab(t,isOrg,isJudge,el) {
   const phase0=t.phases?.[0]||{};
   const mm=MATCH_MODES[phase0.matchMode]||MATCH_MODES['Bo3'];
   const fill=t.maxPlayers?Math.round((t.registrations?.length||0)/t.maxPlayers*100):0;
+  const joinUrl=`${location.origin}/?join=${t.id}`;
+
   let actions='';
   if(!_token){
     if(t.status==='registration') actions=`<button class="btn btn-primary btn-block" onclick="openModal('modal-login')">Log in to Register</button>`;
   } else if(_myReg&&!_myReg.waitlist&&!_myReg.dropped) {
     actions=`<div class="reg-status"><strong>✓ You are registered</strong><span>${(_myReg.decks||[]).length} deck(s) submitted</span></div>
       <button class="btn btn-outline btn-block btn-sm mb-8" onclick="openMyDecks()">View my decklists</button>
-      ${t.status==='registration'?`<button class="btn btn-danger btn-block btn-sm" onclick="doDrop()">Drop from tournament</button>`:''}`;
+      ${t.status==='registration'?`<button class="btn btn-outline btn-block btn-sm mb-8" onclick="openEditDecks()">✏ Edit my decklists</button><button class="btn btn-danger btn-block btn-sm" onclick="doDrop()">Drop from tournament</button>`:''}`;
     if(t.checkinRequired&&!_myReg.checkedIn&&t.status==='registration')
       actions=`<button class="btn btn-teal btn-block mb-8" onclick="doCheckin()">✓ Check In</button>`+actions;
   } else if(_myReg?.waitlist) {
@@ -197,14 +199,51 @@ function renderDetailsTab(t,isOrg,isJudge,el) {
   } else if(t.status==='registration') {
     actions=`<button class="btn btn-primary btn-block" onclick="openRegistration()">Register</button>`;
   }
+
   if(isOrg) {
     actions+=`<hr class="divider">`;
     if(t.status==='registration') actions+=`<button class="btn btn-success btn-block mb-8" onclick="doStart()">▶ Start Tournament</button>`;
-    if(t.status==='ongoing')      actions+=`<button class="btn btn-outline btn-block mb-8" onclick="doNextRound()">Next Round →</button>`;
-    if(t.status==='registration') actions+=`<button class="btn btn-danger btn-block btn-sm" onclick="doDeleteTournament()">🗑 Delete Tournament</button>`;
+    if(t.status==='ongoing') {
+      // Timer
+      const curPairing=t.pairings?.find(p=>p.phaseIdx===t.currentPhase&&p.round===t.currentRound);
+      const timerEnd=curPairing?.timerEnd;
+      actions+=`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:8px">Round Timer</div>
+        <div id="timer-display" style="font-family:var(--display);font-size:22px;font-weight:700;color:var(--teal);margin-bottom:8px">${timerEnd?formatTimer(timerEnd):'—'}</div>
+        <div style="display:flex;gap:6px">
+          <input class="form-input" type="number" id="timer-mins" placeholder="mins" min="1" max="120" value="${t.roundMinutes||50}" style="width:70px">
+          <button class="btn btn-outline btn-sm" onclick="setTimer()">Set</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearTimer()">Clear</button>
+        </div>
+      </div>`;
+      actions+=`<button class="btn btn-outline btn-block mb-8" onclick="doNextRound()">Next Round →</button>`;
+    }
+    if(t.status==='registration') {
+      actions+=`<button class="btn btn-danger btn-block btn-sm mb-8" onclick="doDeleteTournament()">🗑 Delete Tournament</button>`;
+    }
+    // Join link
+    actions+=`<div style="margin-top:8px">
+      <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Invite Link</div>
+      <div style="display:flex;gap:6px">
+        <input class="form-input" style="font-size:11px" value="${joinUrl}" readonly id="join-url-input">
+        <button class="btn btn-outline btn-sm" onclick="copyJoinLink()">Copy</button>
+      </div>
+    </div>`;
   }
   if(isJudge&&!isOrg&&t.status==='ongoing') {
     actions+=`<hr class="divider"><button class="btn btn-outline btn-block btn-sm" onclick="setDetailTab(document.querySelector('[onclick*=judge]'),'judge')">Open Judge Panel</button>`;
+  }
+
+  // Timer display for players (non-org)
+  let timerBanner='';
+  if(!isOrg && t.status==='ongoing') {
+    const curPairing=t.pairings?.find(p=>p.phaseIdx===t.currentPhase&&p.round===t.currentRound);
+    if(curPairing?.timerEnd) {
+      timerBanner=`<div style="background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.3);border-radius:var(--r);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:13px;color:var(--text2)">⏱ Round Timer</span>
+        <span id="timer-display" style="font-family:var(--display);font-size:20px;font-weight:700;color:var(--teal)">${formatTimer(curPairing.timerEnd)}</span>
+      </div>`;
+    }
   }
   const phaseBadges=(t.phases||[]).map((p,i)=>{
     const pt=PHASE_TYPES[p.type]||{};
@@ -218,6 +257,7 @@ function renderDetailsTab(t,isOrg,isJudge,el) {
   }).join('');
   el.innerHTML=`<div class="detail-grid">
     <div>
+      ${timerBanner}
       <div class="card">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
           ${statusBadge(t.status)}<span class="text-dim text-sm">${t.isOnline!==false?'🌐 Online':'🏢 Offline'}</span>
@@ -228,7 +268,7 @@ function renderDetailsTab(t,isOrg,isJudge,el) {
           <div class="info-item"><label>Phases</label><span>${(t.phases||[]).length}</span></div>
           <div class="info-item"><label>Decks/Player</label><span>${t.minDecks===t.maxDecks?t.minDecks:t.minDecks+'–'+t.maxDecks}</span></div>
           <div class="info-item"><label>Round</label><span>${t.currentRound?`R${t.currentRound} / Ph.${t.currentPhase+1}`:'—'}</span></div>
-          <div class="info-item"><label>Organizer</label><span>${esc(t.organizerName)}</span></div>
+          <div class="info-item"><label>Organizer</label><span><a onclick="showProfile('${esc(t.organizerName)}')" style="cursor:pointer;color:var(--teal)">${esc(t.organizerName)}</a></span></div>
           <div class="info-item"><label>Players</label><span>${(t.registrations||[]).length}${t.maxPlayers?'/'+t.maxPlayers:''}</span></div>
         </div>
         ${t.maxPlayers?`<div class="progress mt-8"><div class="progress-fill" style="width:${fill}%"></div></div>`:''}
@@ -240,6 +280,10 @@ function renderDetailsTab(t,isOrg,isJudge,el) {
     </div>
     <div><div class="card">${actions||'<div class="text-dim text-sm">This tournament has ended.</div>'}</div></div>
   </div>`;
+
+  // Start timer interval
+  const curP=t.pairings?.find(p=>p.phaseIdx===t.currentPhase&&p.round===t.currentRound);
+  if(curP?.timerEnd) startTimerTick(curP.timerEnd);
 }
 
 function renderPairingsTab(data,t,isJudge,el) {
@@ -1138,7 +1182,136 @@ function onEntryTypeChange(val){
   _id('invites-group').style.display=val==='invite'?'':'none';
 }
 
+// ── Timer ─────────────────────────────────────────────────────────────────────
+let _timerInterval = null;
+function formatTimer(timerEnd) {
+  const diff = Math.max(0, timerEnd - Date.now());
+  const m = Math.floor(diff/60000);
+  const s = Math.floor((diff%60000)/1000);
+  return `${m}:${s.toString().padStart(2,'0')}`;
+}
+function startTimerTick(timerEnd) {
+  if(_timerInterval) clearInterval(_timerInterval);
+  _timerInterval = setInterval(() => {
+    const el = _id('timer-display');
+    if(!el) { clearInterval(_timerInterval); return; }
+    const diff = timerEnd - Date.now();
+    if(diff <= 0) {
+      el.textContent = '0:00';
+      el.style.color = 'var(--red)';
+      clearInterval(_timerInterval);
+      return;
+    }
+    el.textContent = formatTimer(timerEnd);
+    el.style.color = diff < 60000 ? 'var(--red)' : diff < 180000 ? 'var(--gold)' : 'var(--teal)';
+  }, 1000);
+}
+async function setTimer() {
+  const mins = parseInt(_id('timer-mins')?.value);
+  if(!mins || mins < 1) return toast('Enter minutes','error');
+  const r = await api('PATCH',`/api/tournaments/${_currentDetailId}/timer`,{minutes:mins});
+  if(r.error) return toast(r.error,'error');
+  toast(`Timer set: ${mins} minutes`,'success');
+  _currentTournament = await api('GET',`/api/tournaments/${_currentDetailId}`);
+  renderDetailContent();
+}
+async function clearTimer() {
+  const r = await api('PATCH',`/api/tournaments/${_currentDetailId}/timer`,{minutes:0});
+  if(r.error) return toast(r.error,'error');
+  if(_timerInterval) clearInterval(_timerInterval);
+  _currentTournament = await api('GET',`/api/tournaments/${_currentDetailId}`);
+  renderDetailContent();
+}
+function copyJoinLink() {
+  const url = _id('join-url-input')?.value;
+  navigator.clipboard?.writeText(url).then(()=>toast('Link copied!','success')).catch(()=>{
+    _id('join-url-input').select(); document.execCommand('copy'); toast('Link copied!','success');
+  });
+}
+
+// ── Edit Decks ────────────────────────────────────────────────────────────────
+function openEditDecks() {
+  if(!_myReg) return;
+  _tregTournament = _currentTournament;
+  _tregDecks = (_myReg.decks||[]).map(d => ({ name:d.name, list:d.list||'', mode:'text' }));
+  renderEditModal();
+  openModal('modal-treg');
+}
+function renderEditModal() {
+  // Reuse treg modal but with edit title and patch endpoint
+  _id('modal-treg').querySelector('.modal-title').textContent = 'Edit my Decklists';
+  renderTregModal();
+  // Replace Register button with Save button
+  setTimeout(() => {
+    const btn = _id('treg-content')?.querySelector('button.btn-primary');
+    if(btn) { btn.textContent = 'Save Changes'; btn.onclick = submitEditDecks; }
+  }, 50);
+}
+async function submitEditDecks() {
+  tregSave();
+  const t = _tregTournament;
+  for(const[i,d]of _tregDecks.entries()) if(!d.name.trim()) return toast(`Deck ${i+1} needs a name`,'error');
+  const r = await api('PATCH',`/api/tournaments/${_currentDetailId}/register`,{decks:_tregDecks});
+  if(r.error) return toast(r.error,'error');
+  closeModal('modal-treg');
+  toast('Decklists updated!','success');
+  _myReg = await api('GET',`/api/tournaments/${_currentDetailId}/my-registration`);
+  renderDetailContent();
+}
+
+// ── Join Link Handler ─────────────────────────────────────────────────────────
+async function checkJoinParam() {
+  const params = new URLSearchParams(location.search);
+  const joinId = params.get('join') || params.get('t');
+  if(joinId) {
+    window.history.replaceState({}, '', '/');
+    openTournament(joinId);
+  }
+}
+
+// ── Profile Page ──────────────────────────────────────────────────────────────
+async function showProfile(username) {
+  const r = await api('GET',`/api/profile/${encodeURIComponent(username)}`);
+  if(r.error) return toast('Profile not found','error');
+  const total = r.tournaments.length;
+  const wins = r.totalWins, losses = r.totalLosses;
+  const winrate = wins+losses > 0 ? Math.round(wins/(wins+losses)*100) : 0;
+  _id('decks-content').innerHTML = `
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-family:var(--display);font-size:22px;font-weight:700">${esc(r.username)}</div>
+      <div style="color:var(--text3);font-size:13px;margin-top:4px">${total} tournament${total!==1?'s':''} played</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px;text-align:center">
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:12px">
+        <div style="font-size:22px;font-weight:700;color:var(--green)">${wins}</div>
+        <div style="font-size:11px;color:var(--text3)">Wins</div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:12px">
+        <div style="font-size:22px;font-weight:700;color:var(--red)">${losses}</div>
+        <div style="font-size:11px;color:var(--text3)">Losses</div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:12px">
+        <div style="font-size:22px;font-weight:700;color:var(--teal)">${winrate}%</div>
+        <div style="font-size:11px;color:var(--text3)">Win Rate</div>
+      </div>
+    </div>
+    ${r.tournaments.length ? `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px">Tournaments</div>
+    ${r.tournaments.map(t=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="closeModal('modal-decks');openTournament('${t.id}')">
+      <div>
+        <div style="font-weight:500;font-size:13px">${esc(t.name)}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">${t.decks?.map(d=>d.name).join(', ')||'—'}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:13px;color:var(--green)">${t.wins}W <span style="color:var(--red)">${t.losses}L</span></div>
+        ${statusBadge(t.status)}
+      </div>
+    </div>`).join('')}` : '<div class="text-dim text-sm">No tournaments yet.</div>'}`;
+  _id('modal-decks').querySelector('.modal-title').textContent = `${r.username}'s Profile`;
+  openModal('modal-decks');
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 refreshAuthUI();
 loadTournamentList();
 checkResetToken();
+checkJoinParam();

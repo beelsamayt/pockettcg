@@ -726,14 +726,27 @@ function onDeckTextChange(i, value) {
 
 function onCardSearch(i, query) {
   const sugEl = _id(`card-suggestions-${i}`);
-  if(!query.trim()) { sugEl.style.display='none'; return; }
-  const matches = POCKET_CARDS.filter(c => c.toLowerCase().includes(query.toLowerCase())).slice(0,8);
-  if(!matches.length) { sugEl.style.display='none'; return; }
-  sugEl.innerHTML = matches.map(c => `<div onclick="addCard(${i},'${esc(c)}')" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--surface3)'" onmouseout="this.style.background=''">${esc(c)}</div>`).join('');
-  sugEl.style.display = 'block';
+  if(!query || query.length < 2) { sugEl.style.display='none'; return; }
+  // Debounce
+  clearTimeout(window._cardSearchTimer);
+  window._cardSearchTimer = setTimeout(async () => {
+    const r = await api('GET', `/api/cards/search?q=${encodeURIComponent(query)}`);
+    if(!r || r.error || !r.length) { sugEl.style.display='none'; return; }
+    sugEl.innerHTML = r.map(c => `
+      <div onclick="addCard(${i},'${esc(c.name)}','${esc(c.id)}')"
+        style="padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)"
+        onmouseover="this.style.background='var(--surface3)'" onmouseout="this.style.background=''">
+        ${c.image ? `<img src="${esc(c.image)}" style="width:32px;height:44px;object-fit:contain;border-radius:3px;flex-shrink:0" onerror="this.style.display='none'">` : ''}
+        <div>
+          <div style="font-size:13px;font-weight:500">${esc(c.name)}${c.ex?' <span style="color:var(--teal);font-size:10px">EX</span>':''}</div>
+          <div style="font-size:11px;color:var(--text3)">${esc(c.set||'')} ${esc(c.number||'')} ${c.rarity?'· '+c.rarity:''}</div>
+        </div>
+      </div>`).join('');
+    sugEl.style.display = 'block';
+  }, 250);
 }
 
-function addCard(i, name) {
+function addCard(i, name, cardId) {
   tregSave();
   if(!_tregDecks[i].cards) _tregDecks[i].cards = {};
   const current = _tregDecks[i].cards[name] || 0;
@@ -741,8 +754,15 @@ function addCard(i, name) {
   if(total >= 20) return toast('Deck is already at 20 cards','error');
   if(current >= 2) return toast('Maximum 2 copies per card','error');
   _tregDecks[i].cards[name] = current + 1;
+  if(cardId) {
+    if(!_tregDecks[i].cardIds) _tregDecks[i].cardIds = {};
+    _tregDecks[i].cardIds[name] = cardId;
+  }
   _tregDecks[i].list = cardsToText(_tregDecks[i].cards);
-  _id(`card-search-${i}`).value = '';
+  const searchEl = _id(`card-search-${i}`);
+  if(searchEl) searchEl.value = '';
+  const sugEl = _id(`card-suggestions-${i}`);
+  if(sugEl) sugEl.style.display = 'none';
   renderTregModal();
 }
 

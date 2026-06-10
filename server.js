@@ -484,7 +484,51 @@ app.get('/api/my/judging', auth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/match-modes', (req, res) => res.json(MATCH_MODES));
+// ══════════════════════════════════════════════════════════════════════════════
+// CARDS API — proxy to open source card database
+// ══════════════════════════════════════════════════════════════════════════════
+const https = require('https');
+let _cardsCache = null;
+let _cardsCacheTime = 0;
+const CARDS_URL = 'https://raw.githubusercontent.com/chase-manning/pokemon-tcg-pocket-cards/refs/heads/main/v4.json';
+
+function fetchCards() {
+  return new Promise((resolve, reject) => {
+    https.get(CARDS_URL, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(e); } });
+    }).on('error', reject);
+  });
+}
+
+async function getCards() {
+  const now = Date.now();
+  if (_cardsCache && now - _cardsCacheTime < 3600000) return _cardsCache; // cache 1h
+  try {
+    _cardsCache = await fetchCards();
+    _cardsCacheTime = now;
+    return _cardsCache;
+  } catch(e) {
+    return _cardsCache || [];
+  }
+}
+
+app.get('/api/cards/search', async (req, res) => {
+  try {
+    const q = (req.query.q || '').toLowerCase().trim();
+    if (!q || q.length < 2) return res.json([]);
+    const cards = await getCards();
+    const results = cards
+      .filter(c => c.name?.toLowerCase().includes(q))
+      .slice(0, 12)
+      .map(c => ({ id: c.id, name: c.name, set: c.id?.split('-')[0]?.toUpperCase(), number: c.id?.split('-')[1], image: c.image, ex: c.ex === 'Yes', rarity: c.rarity }));
+    res.json(results);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Warm cache on startup
+getCards().then(c => console.log(`Cards cache: ${c.length} cards`)).catch(() => {});
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PASSWORD RESET
